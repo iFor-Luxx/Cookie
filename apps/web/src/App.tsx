@@ -8,7 +8,8 @@ import { createDraftStore, indexedDbBackend } from "@cookie/platform-web";
 import { CloudOff, LogOut, RefreshCw, Send } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { CanvasBoard, type SaveState } from "@/components/canvas/CanvasBoard";
+import type { SaveState } from "@/components/canvas/CanvasBoard";
+import { P5Board } from "@/components/canvas/P5Board";
 import { Toolbar } from "@/components/canvas/Toolbar";
 import { LoginQrDialog } from "@/components/studio/LoginQrDialog";
 import { Onboarding } from "@/components/studio/Onboarding";
@@ -66,7 +67,10 @@ export function App(): React.JSX.Element {
   const [focusDrawing, setFocusDrawing] = useState<string | null>(null);
   const realtimeRef = useRef<RealtimeClient | null>(null);
 
-  useEffect(() => () => engine.dispose(), [engine]);
+  // Sin dispose al desmontar: el motor es singleton de la sesión (useMemo).
+  // Con StrictMode el desmontaje simulado lo mataría (disposed=true) sin
+  // recrearlo, dejando el lienzo mudo sin ningún error. La página al
+  // cerrarse limpia sola.
 
   // Puente nativo (una vez): espejo de sesión para el worker + deep links.
   useEffect(() => {
@@ -264,7 +268,7 @@ export function App(): React.JSX.Element {
                 setVersion((v) => v + 1);
               }}
             />
-            <CanvasBoard
+            <P5Board
               engine={engine}
               brush={brush}
               draftStore={draftStore}

@@ -32,4 +32,19 @@ export default defineConfig({
     },
   },
   server: { port: 5173 },
+  // Los paquetes del workspace se sirven desde fuente (HMR directo).
+  // Sin esto, Vite los pre-empaqueta una vez y los editas en vano: el
+  // navegador sigue ejecutando el bundle viejo hasta reiniciar con --force.
+  optimizeDeps: {
+    exclude: [
+      "@cookie/core",
+      "@cookie/drawing",
+      "@cookie/platform-capacitor",
+      "@cookie/platform-web",
+      "@cookie/protocol",
+      "@cookie/storage",
+      "@cookie/sync",
+      "@cookie/ui",
+    ],
+  },
 });

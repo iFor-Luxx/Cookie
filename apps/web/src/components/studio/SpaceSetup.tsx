@@ -174,7 +174,9 @@ export function SpaceSetup({
                   return;
                 }
                 if (parsed.kind !== "invite") {
-                  setError("Ese QR es de entrada, úsalo desde el inicio");
+                  setError(
+                    "Ese QR es de entrada: apruébalo desde el estudio (botón QR)",
+                  );
                   return;
                 }
                 setJoinToken(parsed.token);

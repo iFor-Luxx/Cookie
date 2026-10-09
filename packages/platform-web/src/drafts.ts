@@ -30,9 +30,12 @@ function idbRequest<T>(req: IDBRequest<T>): Promise<T> {
   });
 }
 
+/** Versión del esquema: subirla ejecuta onupgradeneeded y crea el almacén. */
+const DB_VERSION = 2;
+
 function openDb(name: string, store: string): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(name, 1);
+    const req = indexedDB.open(name, DB_VERSION);
     req.onupgradeneeded = () => {
       if (!req.result.objectStoreNames.contains(store)) {
         req.result.createObjectStore(store);
@@ -40,6 +43,21 @@ function openDb(name: string, store: string): Promise<IDBDatabase> {
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error ?? new Error("IndexedDB open error"));
+    // Otra pestaña con conexión vieja: no colgar el lienzo, degradar a local.
+    req.onblocked = () => reject(new Error("IndexedDB blocked"));
+  });
+}
+
+function deleteDb(name: string): Promise<void> {
+  return new Promise((resolve) => {
+    try {
+      const req = indexedDB.deleteDatabase(name);
+      req.onsuccess = () => resolve();
+      req.onerror = () => resolve();
+      req.onblocked = () => resolve();
+    } catch {
+      resolve();
+    }
   });
 }
 
@@ -52,14 +70,28 @@ export function indexedDbBackend(
     mode: IDBTransactionMode,
     fn: (s: IDBObjectStore) => IDBRequest<T>,
   ): Promise<T> => {
-    const db = await openDb(dbName, storeName);
+    const runOnce = async (): Promise<T> => {
+      const db = await openDb(dbName, storeName);
+      try {
+        const tx = db.transaction(storeName, mode);
+        const result = await idbRequest(fn(tx.objectStore(storeName)));
+        db.close();
+        return result;
+      } catch (e) {
+        db.close();
+        throw e;
+      }
+    };
     try {
-      const tx = db.transaction(storeName, mode);
-      const result = await idbRequest(fn(tx.objectStore(storeName)));
-      db.close();
-      return result;
+      return await runOnce();
     } catch (e) {
-      db.close();
+      // Base obsoleta sin el almacén (v1 de iteraciones viejas): recrearla
+      // y reintentar una vez. El borrador es efímero; el dibujo nunca se
+      // bloquea por esto (arriba se degrada a modo local).
+      if (e instanceof DOMException && e.name === "NotFoundError") {
+        await deleteDb(dbName);
+        return await runOnce();
+      }
       throw e;
     }
   };

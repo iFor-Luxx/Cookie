@@ -509,10 +509,7 @@ export function createApp(deps: AppDeps): (req: Request) => Promise<Response> {
 
     // POST /v1/login-attempts/poll — el PC sondea hasta entrar (misma
     // identidad y misma sala, sin duplicar nada).
-    if (
-      req.method === "POST" &&
-      url.pathname === "/v1/login-attempts/poll"
-    ) {
+    if (req.method === "POST" && url.pathname === "/v1/login-attempts/poll") {
       const limited = checkRate(
         deps,
         requestId,

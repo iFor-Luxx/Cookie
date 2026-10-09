@@ -8,7 +8,20 @@ export const MAX_POINTS_PER_STROKE = 4096 as const;
 /** Límite MVP: trazos por documento (acota render/export). */
 export const MAX_STROKES_PER_DOCUMENT = 512 as const;
 
-export const toolSchema = z.enum(["graphite", "pencil", "marker"]);
+export const toolSchema = z.enum([
+  "graphite",
+  "pencil",
+  "marker",
+  "2b",
+  "2h",
+  "cpencil",
+  "pen",
+  "rotring",
+  "spray",
+  "marker2",
+  "charcoal",
+  "hatch",
+]);
 export type ToolId = z.infer<typeof toolSchema>;
 
 /** Punto canónico: x, y (0..1), pressure (0..1), tilt (radianes, puede ser 0). */
@@ -111,6 +124,15 @@ export const DEFAULT_BRUSHES: Record<ToolId, BrushConfig> = {
   graphite: { tool: "graphite", color: "#333333", size: 3.2, opacity: 0.82 },
   pencil: { tool: "pencil", color: "#2563eb", size: 4.5, opacity: 0.7 },
   marker: { tool: "marker", color: "#111111", size: 12, opacity: 0.55 },
+  "2b": { tool: "2b", color: "#222222", size: 4.2, opacity: 0.9 },
+  "2h": { tool: "2h", color: "#444444", size: 2.2, opacity: 0.6 },
+  cpencil: { tool: "cpencil", color: "#059669", size: 5, opacity: 0.65 },
+  pen: { tool: "pen", color: "#111111", size: 2.6, opacity: 0.95 },
+  rotring: { tool: "rotring", color: "#111111", size: 3, opacity: 0.95 },
+  spray: { tool: "spray", color: "#333333", size: 14, opacity: 0.5 },
+  marker2: { tool: "marker2", color: "#1e40af", size: 12, opacity: 0.5 },
+  charcoal: { tool: "charcoal", color: "#1a1a1a", size: 9, opacity: 0.75 },
+  hatch: { tool: "hatch", color: "#333333", size: 3, opacity: 0.8 },
 };
 
 /** Muestra de puntero normalizada que entra al engine. */

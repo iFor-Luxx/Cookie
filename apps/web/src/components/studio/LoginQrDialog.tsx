@@ -31,10 +31,7 @@ export function LoginQrDialog(): React.JSX.Element {
     setBusy(true);
     setError(null);
     try {
-      const res = await api.approveLoginAttempt(
-        parsed.attemptId,
-        parsed.code,
-      );
+      const res = await api.approveLoginAttempt(parsed.attemptId, parsed.code);
       setDone(
         res.platform === "android"
           ? "Celular vinculado a tu cuenta."

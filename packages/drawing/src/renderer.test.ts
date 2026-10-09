@@ -92,4 +92,87 @@ describe("renderer determinista", () => {
     renderDocument(t3, doc);
     expect(t3.log).toEqual(t1.log);
   });
+
+  it("salida exacta congelada de las 3 clásicas (anti-regresión visual)", () => {
+    const t = recordingTarget(256, 256);
+    renderDocument(t, doc);
+    expect(t.log).toMatchSnapshot();
+  });
+
+  it("las 8 nuevas son deterministas y producen marcas", () => {
+    const tools = [
+      "2b",
+      "2h",
+      "cpencil",
+      "pen",
+      "rotring",
+      "spray",
+      "marker2",
+      "charcoal",
+      "hatch",
+    ] as const;
+    for (const tool of tools) {
+      const strokeDoc = parseDocument({
+        schemaVersion: 1,
+        canvas: { width: 256, height: 256, background: "#FFFFFF" },
+        strokes: [
+          {
+            id: "x",
+            tool,
+            color: "#333333",
+            size: 8,
+            opacity: 0.8,
+            seed: 1234,
+            points: [
+              [0.2, 0.3, 0.5, 0],
+              [0.5, 0.5, 0.9, 0],
+              [0.7, 0.4, 0.4, 0],
+            ],
+          },
+        ],
+      });
+      const t1 = recordingTarget(256, 256);
+      const t2 = recordingTarget(256, 256);
+      renderDocument(t1, strokeDoc);
+      renderDocument(t2, strokeDoc);
+      expect(t1.log).toEqual(t2.log);
+      expect(t1.log.length).toBeGreaterThan(3);
+    }
+  });
+
+  it("spray solo sella (sin segmentos) y hatch genera ticks", () => {
+    const mk = (
+      tool: "spray" | "hatch",
+    ): ReturnType<typeof recordingTarget> => {
+      const strokeDoc = parseDocument({
+        schemaVersion: 1,
+        canvas: { width: 256, height: 256, background: "#FFFFFF" },
+        strokes: [
+          {
+            id: "x",
+            tool,
+            color: "#333333",
+            size: 8,
+            opacity: 0.8,
+            seed: 99,
+            points: [
+              [0.2, 0.3, 0.5, 0],
+              [0.6, 0.6, 0.6, 0],
+            ],
+          },
+        ],
+      });
+      const t = recordingTarget(256, 256);
+      renderDocument(t, strokeDoc);
+      return t;
+    };
+    const spray = mk("spray");
+    expect(spray.log.some((l) => l.startsWith("seg"))).toBe(false);
+    expect(spray.log.some((l) => l.startsWith("stamp"))).toBe(true);
+    const hatch = mk("hatch");
+    expect(hatch.log.filter((l) => l.startsWith("seg")).length).toBeGreaterThan(
+      2,
+    );
+    expect(hatch.log.some((l) => l.startsWith("stamp"))).toBe(false);
+  });
 });

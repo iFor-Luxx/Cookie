@@ -12,10 +12,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { ApiError, api } from "@/lib/api";
-import { loginQrPayload, parseQrPayload } from "@/lib/invite-qr";
+import { loginQrPayload } from "@/lib/invite-qr";
 import { loadLastSpaceId } from "@/lib/last-space";
 import { InviteQr } from "./InviteQr";
-import { QrScanner } from "./QrScanner";
 
 export function Onboarding({
   onDone,
@@ -29,13 +28,6 @@ export function Onboarding({
   const [recover, setRecover] = useState(false);
   const [spaceId, setSpaceId] = useState(() => loadLastSpaceId() ?? "");
   const [secret, setSecret] = useState("");
-  // Entrada por QR (segundo dispositivo/persona): primero se escanea,
-  // después UN solo nombre. Registro + consumo encadenados.
-  const [scanning, setScanning] = useState(false);
-  const [inviteToken, setInviteToken] = useState<string | null>(null);
-  const [joinName, setJoinName] = useState("");
-  const [joinError, setJoinError] = useState<string | null>(null);
-  const [joinBusy, setJoinBusy] = useState(false);
   // Entrada estilo WhatsApp Web: este PC muestra su QR y el celular con
   // sesión lo escanea para aprobar. Sin escribir nada aquí.
   const [attempt, setAttempt] = useState<{
@@ -54,10 +46,7 @@ export function Onboarding({
     setWaiting(true);
     const tick = async (): Promise<void> => {
       try {
-        const res = await api.pollLoginAttempt(
-          attempt.attemptId,
-          attempt.code,
-        );
+        const res = await api.pollLoginAttempt(attempt.attemptId, attempt.code);
         if (cancelled) return;
         if (res.status === "approved") {
           setWaiting(false);
@@ -112,33 +101,6 @@ export function Onboarding({
     }
   };
 
-  const joinWithToken = async (
-    token: string,
-    displayName: string,
-  ): Promise<void> => {
-    const t = token.trim();
-    const n = displayName.trim();
-    if (!t || !n) return;
-    setJoinBusy(true);
-    setJoinError(null);
-    try {
-      await api.register(n);
-    } catch (e) {
-      setJoinError(e instanceof ApiError ? e.message : "No se pudo registrar");
-      setJoinBusy(false);
-      return;
-    }
-    try {
-      const res = await api.consumeInvite(t);
-      onDone(res.pairSpaceId);
-    } catch (e) {
-      // Sesión creada pero sin espacio: se puede continuar al setup.
-      setJoinError(e instanceof ApiError ? e.message : "Invitación inválida");
-    } finally {
-      setJoinBusy(false);
-    }
-  };
-
   const doRecover = async (): Promise<void> => {
     setBusy(true);
     setError(null);
@@ -169,27 +131,7 @@ export function Onboarding({
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
-          {scanning ? (
-            <QrScanner
-              onScan={(raw) => {
-                const parsed = parseQrPayload(raw);
-                setScanning(false);
-                if (!parsed) {
-                  setJoinError("QR no reconocido");
-                  return;
-                }
-                if (parsed.kind === "login") {
-                  setJoinError(
-                    "Ese QR es de entrada: apruébalo desde tu otro dispositivo (estudio, botón QR)",
-                  );
-                  return;
-                }
-                setJoinError(null);
-                setInviteToken(parsed.token);
-              }}
-              onClose={() => setScanning(false)}
-            />
-          ) : attempt ? (
+          {attempt ? (
             <>
               <div className="flex flex-col items-center gap-2">
                 <p className="text-sm text-muted-foreground">
@@ -210,10 +152,7 @@ export function Onboarding({
                 <p className="text-sm text-destructive">{attemptError}</p>
               )}
               <div className="flex gap-2">
-                <Button
-                  variant="secondary"
-                  onClick={() => void openAttempt()}
-                >
+                <Button variant="secondary" onClick={() => void openAttempt()}>
                   Generar otro
                 </Button>
                 <Button
@@ -227,53 +166,9 @@ export function Onboarding({
                 </Button>
               </div>
             </>
-          ) : inviteToken ? (
-            <>
-              <p className="text-sm text-muted-foreground">
-                Invitación lista. Pon tu nombre una sola vez para entrar.
-              </p>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="joinName">Tu nombre visible</Label>
-                <Input
-                  id="joinName"
-                  value={joinName}
-                  onChange={(e) => setJoinName(e.target.value)}
-                  maxLength={32}
-                  placeholder="Lux"
-                />
-              </div>
-              {joinError && (
-                <p className="text-sm text-destructive">{joinError}</p>
-              )}
-              <Button
-                onClick={() => void joinWithToken(inviteToken, joinName)}
-                disabled={joinBusy || !joinName.trim()}
-              >
-                Unirse
-              </Button>
-              {joinError && (
-                <Button variant="secondary" onClick={() => onDone(null)}>
-                  Continuar sin unirse
-                </Button>
-              )}
-              <button
-                type="button"
-                onClick={() => {
-                  setInviteToken(null);
-                  setJoinError(null);
-                  setScanning(true);
-                }}
-                className="text-sm text-muted-foreground underline-offset-4 hover:underline"
-              >
-                Escanear otro código
-              </button>
-            </>
           ) : !recover ? (
             <>
-              <Button
-                onClick={() => void openAttempt()}
-                disabled={busy || joinBusy}
-              >
+              <Button onClick={() => void openAttempt()} disabled={busy}>
                 <ScanLine className="size-4" aria-hidden /> Entrar con mi
                 celular
               </Button>
@@ -299,18 +194,6 @@ export function Onboarding({
               >
                 Entrar
               </Button>
-              <Separator />
-              <Button
-                variant="secondary"
-                onClick={() => setScanning(true)}
-                disabled={busy || joinBusy}
-              >
-                <ScanLine className="size-4" aria-hidden /> Tengo invitación:
-                escanear QR
-              </Button>
-              {joinError && !inviteToken && (
-                <p className="text-sm text-destructive">{joinError}</p>
-              )}
               <button
                 type="button"
                 onClick={() => setRecover(true)}
