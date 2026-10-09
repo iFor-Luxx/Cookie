@@ -3,7 +3,7 @@
   "compatibility_date": "2026-10-01",
   "main": "../../server/api/src/worker.ts",
   "vars": {
-    "ALLOWED_ORIGINS": "capacitor://localhost"
+    "ALLOWED_ORIGINS": "capacitor://localhost,https://localhost"
   },
   // Secretos SOLO vía `wrangler secret put --env staging`:
   // ACCESS_SECRET (>=32 bytes), INTERNAL_SECRET
@@ -11,6 +11,7 @@
     {
       "binding": "DB",
       "database_name": "cookie-staging",
+      "database_id": "9d2e356f-1229-4143-a3a2-a7e3e12eb6d1",
       "migrations_dir": "../../server/db/migrations"
     }
   ],

@@ -3,7 +3,7 @@
   "compatibility_date": "2026-10-01",
   "main": "../../server/api/src/worker.ts",
   "vars": {
-    "ALLOWED_ORIGINS": "http://localhost:5173,capacitor://localhost"
+    "ALLOWED_ORIGINS": "http://localhost:5173,capacitor://localhost,https://localhost"
   },
   // Secretos SOLO vía `wrangler secret put` (nunca aquí):
   // ACCESS_SECRET (>=32 bytes), INTERNAL_SECRET

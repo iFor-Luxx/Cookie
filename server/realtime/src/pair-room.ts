@@ -4,9 +4,9 @@
 //
 // Flujo: cliente pide ticket en API (auth + membresía) → conecta al DO con
 // ?ticket= → el DO consume el ticket vía endpoint interno → hello/ready.
-// Cableado wrangler (pendiente deploy):
-//   const stub = env.PAIR_ROOM.get(env.PAIR_ROOM.idFromName(spaceId));
-//   wss://…/realtime?ticket=…
+// Cableado en server/api/src/worker.ts: el Worker enruta el upgrade
+// `/v1/pair-spaces/{id}/realtime-socket` al stub del DO; el DO lee
+// INTERNAL_SECRET y API_BASE del mismo env del script.
 import { type BroadcastEvent, RoomHub } from "./hub";
 
 // Globals del runtime Cloudflare (no existen en lib DOM de typecheck).
@@ -30,7 +30,9 @@ interface DOState {
 }
 
 interface DOEnv {
-  API_INTERNAL_SECRET: string;
+  /** Compartido con el Worker (mismo script): el DO ve los secretos del script. */
+  INTERNAL_SECRET: string;
+  /** URL pública del Worker; el DO la usa para los endpoints /internal/*. */
   API_BASE: string;
 }
 
@@ -58,7 +60,7 @@ export class PairRoom {
       const res = await fetch(`${this.env.API_BASE}/internal/tickets/consume`, {
         method: "POST",
         headers: {
-          authorization: `Bearer ${this.env.API_INTERNAL_SECRET}`,
+          authorization: `Bearer ${this.env.INTERNAL_SECRET}`,
           "content-type": "application/json",
         },
         body: JSON.stringify({ ticket }),
@@ -75,7 +77,7 @@ export class PairRoom {
       const res = await fetch(
         `${this.env.API_BASE}/internal/spaces/${encodeURIComponent(spaceId)}/seq`,
         {
-          headers: { authorization: `Bearer ${this.env.API_INTERNAL_SECRET}` },
+          headers: { authorization: `Bearer ${this.env.INTERNAL_SECRET}` },
         },
       );
       if (!res.ok) return 0;
@@ -91,7 +93,7 @@ export class PairRoom {
     if (url.pathname === "/notify" && req.method === "POST") {
       if (
         req.headers.get("authorization") !==
-        `Bearer ${this.env.API_INTERNAL_SECRET}`
+        `Bearer ${this.env.INTERNAL_SECRET}`
       ) {
         return new Response("forbidden", { status: 403 });
       }
