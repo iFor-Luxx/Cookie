@@ -1,15 +1,14 @@
 # Fuentes locales (APK offline)
 
-`index.css` espera estos woff2 aquí (vía `@font-face` + `preload` en `index.html`):
+Servidas desde `apps/web/public/fonts/` → copiadas a `dist/fonts/` verbatim.
+`index.css` las referencia como `/fonts/*.ttf` y `index.html` las precarga.
 
-- `instrument-serif-latin-400.woff2` + `instrument-serif-latin-400-italic.woff2`
-  → Google Fonts “Instrument Serif” (OFL). Descargar de
-  https://fonts.google.com/specimen/Instrument+Serif
-- `geist-pixel-square-latin-400.woff2`
-  → ÚNICA variante pixel (Square). Fuente: `vercel/geist-pixel-font`
-  releases (OFL-1.1) o Google Fonts “Geist Pixel” (eje ELSH).
-  No vendorear Grid/Circle/Triangle/Line.
+- `InstrumentSerif.ttf` → `Instrument Serif` (400 normal; la itálica se
+  sintetiza hasta vendorear el italic real).
+  Google Fonts “Instrument Serif” (OFL).
+- `GeistPixel.ttf` → `Geist Pixel Square`, ÚNICA variante pixel (no Grid /
+  Circle / Triangle / Line). `vercel/geist-pixel-font` (OFL-1.1).
 
-Pasos: descargar woff2 latin → renombrar como arriba → `bun run build:web`.
-Vite los emite a `dist/fonts/` vía `assetsInlineLimit` default; Capacitor los
-sirve offline desde `webDir`.
+Nota: `GeistPixel.ttf` pesa ~3.6 MiB sin subsetear. Se descarga lazy
+(`font-display: swap`, solo donde se usa `font-pixel`), pero antes del
+piloto conviene subsetear a latin + convertir a woff2.

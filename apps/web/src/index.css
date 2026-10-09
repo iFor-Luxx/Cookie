@@ -2,25 +2,17 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* Fuentes locales — ver src/assets/fonts/README.md */
+/* Fuentes locales servidas desde /fonts (public/, copiadas a dist verbatim, offline-safe en APK) */
 @font-face {
   font-family: "Instrument Serif";
-  src: url("./assets/fonts/instrument-serif-latin-400.woff2") format("woff2");
+  src: url("/fonts/InstrumentSerif.ttf") format("truetype");
   font-weight: 400;
   font-style: normal;
   font-display: swap;
 }
 @font-face {
-  font-family: "Instrument Serif";
-  src: url("./assets/fonts/instrument-serif-latin-400-italic.woff2")
-    format("woff2");
-  font-weight: 400;
-  font-style: italic;
-  font-display: swap;
-}
-@font-face {
   font-family: "Geist Pixel Square";
-  src: url("./assets/fonts/geist-pixel-square-latin-400.woff2") format("woff2");
+  src: url("/fonts/GeistPixel.ttf") format("truetype");
   font-weight: 400;
   font-style: normal;
   font-display: swap;

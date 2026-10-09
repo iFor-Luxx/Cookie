@@ -13,9 +13,14 @@ bun.lockb
 apps/web/dist/
 apps/web/.vite/
 
-# Android / Capacitor
-apps/android/android/
+# Android / Capacitor — proyecto nativo VERSIONADO (Gradle/manifest/Kotlin son código).
+# Ignorar solo build outputs y config local de SDK.
 apps/android/dist/
+apps/android/android/.gradle/
+apps/android/android/app/build/
+apps/android/android/app/release/
+apps/android/android/capacitor-cordova-android-plugins/build/
+apps/android/android/local.properties
 *.apk
 *.aab
 *.keystore

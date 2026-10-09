@@ -41,9 +41,11 @@ infra/wrangler firebase/  docs/adr/
 - ACK solo tras commit D1 (Drawing+Event+Idempotency). WS/DO es fanout, no verdad. Replay por `seq`, snapshot si `CURSOR_EXPIRED`.
 - Mutaciones reintentables llevan `Idempotency-Key` (misma key+mismo hash = mismo resultado; distinto hash = `409`).
 - Tailwind v4: `@import "tailwindcss"` en `apps/web/src/index.css`. Tokens oklch ahí son contrato visual, no cambiar sin pedir.
-- Fuentes bundle local (`apps/web/src/assets/fonts/`, `@font-face`, preload): `Instrument Serif` → `--font-serif` / display; `Geist Pixel Square` → `--font-pixel` (ÚNICA variante pixel). `--font-sans` se mantiene. Nada de CDN en runtime (APK offline).
+- Fuentes bundle local (`apps/web/public/fonts/` → `dist/fonts/`, `@font-face`, preload): `Instrument Serif` → `--font-serif` / display; `Geist Pixel Square` → `--font-pixel` (ÚNICA variante pixel). `--font-sans` se mantiene. Nada de CDN en runtime (APK offline).
 - UI: shadcn `new-york`, `cn()` en `lib/utils.ts`, iconos `lucide-react`. Nada de emojis como iconos.
 - R2/D1/FCM nunca desde UI. Keys R2 server-generated. Sin base64 en SQL/WS/logs/push.
 - Auth: bearer corto en memoria, refresh en store seguro (web: no `localStorage`; android: Keystore vía plugin). WS con ticket 1-uso segundos. Hashes en backend, nunca secretos en logs.
 - Widget/FCM = best-effort (doze/OEM/force-stop). No prometer instantáneo. Mostrar última preview + timestamp.
+- Android: `minSdk 29` (Android 10+), `compile/target 35`. Proyecto nativo `apps/android/android/` VERSIONADO (variables.gradle, manifest, Kotlin). Solo `local.properties` (sdk.dir) y `*/build/` van gitignored.
+- Build APK: Gradle 8.14 NO corre en Java 25 (JBR bundled del Studio actual). Para `assembleDebug` usar JDK 21 (`JAVA_HOME` o `org.gradle.java.home`), con `ANDROID_HOME=%LOCALAPPDATA%/Android/Sdk`.
 - Al comenzar cada mensaje debes de decir "Lux" esto es OBLIGATORIO en cualquier mensaje
