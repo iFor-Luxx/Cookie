@@ -3,10 +3,12 @@
   "compatibility_date": "2026-10-01",
   "main": "../../server/api/src/worker.ts",
   "vars": {
-    "ALLOWED_ORIGINS": "capacitor://localhost,https://localhost"
+    "ALLOWED_ORIGINS": "capacitor://localhost,https://localhost",
+    "API_BASE": "https://cookie-staging.jhojantomairo2.workers.dev"
   },
   // Secretos SOLO vía `wrangler secret put --env staging`:
-  // ACCESS_SECRET (>=32 bytes), INTERNAL_SECRET
+  // ACCESS_SECRET (>=32 bytes), INTERNAL_SECRET,
+  // FCM_SERVICE_ACCOUNT (JSON de cuenta de servicio; opcional, sin él no hay push).
   "d1_databases": [
     {
       "binding": "DB",

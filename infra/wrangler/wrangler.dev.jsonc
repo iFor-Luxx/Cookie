@@ -3,10 +3,12 @@
   "compatibility_date": "2026-10-01",
   "main": "../../server/api/src/worker.ts",
   "vars": {
-    "ALLOWED_ORIGINS": "http://localhost:5173,capacitor://localhost,https://localhost"
+    "ALLOWED_ORIGINS": "http://localhost:5173,capacitor://localhost,https://localhost",
+    "API_BASE": "http://localhost:8787"
   },
   // Secretos SOLO vía `wrangler secret put` (nunca aquí):
-  // ACCESS_SECRET (>=32 bytes), INTERNAL_SECRET
+  // ACCESS_SECRET (>=32 bytes), INTERNAL_SECRET,
+  // FCM_SERVICE_ACCOUNT (JSON de cuenta de servicio; opcional).
   "d1_databases": [
     {
       "binding": "DB",
