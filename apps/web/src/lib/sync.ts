@@ -13,6 +13,8 @@ import {
 } from "@cookie/sync";
 import { ApiError, api } from "./api";
 
+const PREVIEW_BUDGET_BYTES = 16 * 1024;
+
 function toTransportError(e: unknown): TransportError {
   if (e instanceof ApiError) {
     const retryable = e.status === 429 || e.status >= 500;
@@ -77,22 +79,36 @@ const transport: PublishTransport = {
   },
   renderPreview: async (docJson) => {
     const doc = JSON.parse(docJson) as Parameters<typeof renderDocument>[1];
-    const size = 512;
-    const canvas = document.createElement("canvas");
-    canvas.width = size;
-    canvas.height = size;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) throw new TransportError("Sin contexto 2d", false);
-    renderDocument(canvas2dTarget(ctx, size, size), doc);
-    const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob(resolve, "image/webp", 0.85),
-    );
-    if (!blob) throw new TransportError("Sin preview", false);
-    const type = blob.type === "image/webp" ? "image/webp" : "image/png";
-    return {
-      bytes: new Uint8Array(await blob.arrayBuffer()),
-      contentType: type,
-    };
+    // Thumbnail para Historia únicamente: encajar en un presupuesto fijo para
+    // que el historial crezca sin coste (R2 10GB, historial intocable).
+    const attempts: ReadonlyArray<readonly [number, number]> = [
+      [256, 0.6],
+      [256, 0.45],
+      [256, 0.32],
+      [192, 0.45],
+      [128, 0.45],
+    ];
+    let last: { bytes: Uint8Array; contentType: string } | null = null;
+    for (const [size, quality] of attempts) {
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new TransportError("Sin contexto 2d", false);
+      renderDocument(canvas2dTarget(ctx, size, size), doc);
+      const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, "image/webp", quality),
+      );
+      if (!blob) throw new TransportError("Sin preview", false);
+      const type = blob.type === "image/webp" ? "image/webp" : "image/png";
+      last = {
+        bytes: new Uint8Array(await blob.arrayBuffer()),
+        contentType: type,
+      };
+      if (last.bytes.length <= PREVIEW_BUDGET_BYTES) break;
+    }
+    if (!last) throw new TransportError("Sin preview", false);
+    return last;
   },
   sha256Hex,
 };

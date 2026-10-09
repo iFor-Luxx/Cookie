@@ -14,16 +14,17 @@ import java.net.URL
 import org.json.JSONObject
 
 /**
- * H6: sincroniza la última preview del historial en background.
- * Trabajo único colapsado (KEEP): ráfagas de push no multiplican descargas.
- * Best-effort: doze, standby, batería y fabricante pueden posponerlo.
+ * H6/H8: sincroniza el documento del último dibujo en background.
+ * El widget renderiza el JSON localmente; nunca descarga la preview (esa
+ * queda solo para Historia). Trabajo único colapsado (KEEP): ráfagas de
+ * push no multiplican descargas. Best-effort: doze/standby/fabricante.
  */
 class SyncWorker(appContext: Context, params: WorkerParameters) :
     CoroutineWorker(appContext, params) {
 
     companion object {
         const val UNIQUE_NAME = "cookie-sync"
-        private const val PREVIEW_MAX_BYTES = 1024 * 1024
+        private const val DOC_MAX_BYTES = 512 * 1024
 
         fun enqueue(context: Context) {
             val request = OneTimeWorkRequestBuilder<SyncWorker>()
@@ -100,12 +101,13 @@ class SyncWorker(appContext: Context, params: WorkerParameters) :
                 WidgetCache.saveCursor(applicationContext, currentSeq)
                 return Result.success()
             }
-            val preview = getBytes(apiBase, "/v1/drawings/$drawingId/preview", access, PREVIEW_MAX_BYTES)
+            val docBytes = getBytes(apiBase, "/v1/drawings/$drawingId/document", access, DOC_MAX_BYTES)
                 ?: return Result.retry()
+            val docJson = String(docBytes, Charsets.UTF_8)
             WidgetCache.save(
                 applicationContext,
                 CachedDrawing(drawingId = drawingId, createdAt = createdAt, cursor = currentSeq),
-                preview,
+                docJson,
             )
             CookieWidgetProvider.renderAll(applicationContext)
             return Result.success()

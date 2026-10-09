@@ -66,6 +66,39 @@ export function parseDocument(unknownDoc: unknown): VersionedDrawingDocument {
   return parsed.data;
 }
 
+function roundTo(value: number, decimals: number): number {
+  const f = 10 ** decimals;
+  return Math.round(value * f) / f;
+}
+
+/**
+ * Serializa el documento con pérdida imperceptible para minimizar bytes en R2.
+ * Las coordenadas normalizadas se redondean a 4 decimales (≤0.4 px en 4096) y
+ * presión/tilt/tamaño/opacidad a 3. El resultado sigue siendo válido para
+ * `parseDocument`. Es la representación canónica persistida/publicada.
+ */
+export function serializeDocument(doc: VersionedDrawingDocument): string {
+  const compact = {
+    schemaVersion: doc.schemaVersion,
+    canvas: doc.canvas,
+    strokes: doc.strokes.map((s) => ({
+      id: s.id,
+      tool: s.tool,
+      color: s.color,
+      size: roundTo(s.size, 3),
+      opacity: roundTo(s.opacity, 3),
+      seed: s.seed,
+      points: s.points.map((p) => [
+        roundTo(p[0], 4),
+        roundTo(p[1], 4),
+        roundTo(p[2], 3),
+        roundTo(p[3], 3),
+      ]),
+    })),
+  };
+  return JSON.stringify(compact);
+}
+
 /** Config de pincel para un trazo nuevo (UI → engine). */
 export interface BrushConfig {
   readonly tool: ToolId;

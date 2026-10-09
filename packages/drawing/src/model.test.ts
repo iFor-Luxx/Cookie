@@ -4,6 +4,7 @@ import {
   DEFAULT_BRUSHES,
   MAX_POINTS_PER_STROKE,
   parseDocument,
+  serializeDocument,
 } from "./model";
 
 describe("drawing model v1", () => {
@@ -67,6 +68,35 @@ describe("drawing model v1", () => {
     const doc = createBlankDocument(512, 512);
     const json = JSON.stringify(doc);
     expect(parseDocument(JSON.parse(json))).toEqual(doc);
+  });
+
+  it("serializeDocument redondea y sigue siendo canónico", () => {
+    const doc: Parameters<typeof serializeDocument>[0] = {
+      schemaVersion: 1,
+      canvas: { width: 1024, height: 1024, background: "#FFFFFF" },
+      strokes: [
+        {
+          id: "s1",
+          tool: "graphite",
+          color: "#333333",
+          size: 3.25,
+          opacity: 0.876543,
+          seed: 1,
+          points: [
+            [0.1234567, 0.7654321, 0.545454, 0.33333333],
+            [0.5, 0.5, 1, 0],
+          ],
+        },
+      ],
+    };
+    const parsed = parseDocument(JSON.parse(serializeDocument(doc)));
+    const stroke = parsed.strokes[0]!;
+    const firstPoint = stroke.points[0]!;
+    expect(stroke.size).toBe(3.25);
+    expect(stroke.opacity).toBe(0.877);
+    expect(firstPoint).toEqual([0.1235, 0.7654, 0.545, 0.333]);
+    // Precisión perdida ≤ 0.5px en 4096 (4 decimales normalizados).
+    expect(Math.abs(0.1234567 - firstPoint[0]) * 4096).toBeLessThan(0.5);
   });
 
   it("pinceles por defecto cubren las 3 herramientas MVP", () => {

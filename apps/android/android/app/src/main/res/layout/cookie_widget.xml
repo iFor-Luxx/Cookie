@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- H6: layout del widget. Solo vistas simples (RemoteViews): última preview
-     confirmada + hora aproximada. Nada de historial ni secretos aquí. -->
+<!-- H6/H8: layout del widget. Render del documento JSON (máxima calidad) +
+     hora aproximada. fitCenter: el lienzo es cuadrado (1024×1024) y el área
+     del widget suele ser rectangular; fondo blanco integra las franjas. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -13,7 +14,7 @@
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:scaleType="centerCrop"
+        android:scaleType="fitCenter"
         android:contentDescription="@string/widget_preview_desc" />
 
     <TextView

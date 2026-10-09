@@ -1,13 +1,12 @@
 package dev.luxury.cookie.widget
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import java.io.File
 
 /**
- * H6: caché del widget. Última preview confirmada + metadatos mínimos.
- * Sin historial, sin tokens, sin URLs firmadas. Escritura atómica (tmp+rename).
+ * H6/H8: caché del widget. Último documento JSON confirmado + metadatos
+ * mínimos. El widget renderiza el documento localmente (máxima calidad);
+ * no guarda la preview ni tokens ni URLs firmadas. Escritura atómica.
  */
 data class CachedDrawing(
     val drawingId: String,
@@ -21,8 +20,8 @@ private const val KEY_CREATED_AT = "createdAt"
 private const val KEY_CURSOR = "cursor"
 
 object WidgetCache {
-    fun previewFile(context: Context): File =
-        File(File(context.filesDir, "widget"), "preview.png")
+    fun documentFile(context: Context): File =
+        File(File(context.filesDir, "widget"), "doc.json")
 
     fun load(context: Context): CachedDrawing? {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -34,21 +33,25 @@ object WidgetCache {
         )
     }
 
-    fun loadBitmap(context: Context): Bitmap? {
-        val file = previewFile(context)
+    fun loadDocument(context: Context): String? {
+        val file = documentFile(context)
         if (!file.exists()) return null
-        return BitmapFactory.decodeFile(file.absolutePath)
+        return try {
+            file.readText(Charsets.UTF_8)
+        } catch (_: Exception) {
+            null
+        }
     }
 
-    fun save(context: Context, cached: CachedDrawing, previewPng: ByteArray) {
+    fun save(context: Context, cached: CachedDrawing, docJson: String) {
         val dir = File(context.filesDir, "widget")
         if (!dir.exists()) dir.mkdirs()
-        val tmp = File(dir, "preview.png.tmp")
-        tmp.writeBytes(previewPng)
-        val dest = previewFile(context)
+        val tmp = File(dir, "doc.json.tmp")
+        tmp.writeText(docJson, Charsets.UTF_8)
+        val dest = documentFile(context)
         if (!tmp.renameTo(dest)) {
             tmp.delete()
-            throw IllegalStateException("No se pudo guardar la preview del widget")
+            throw IllegalStateException("No se pudo guardar el documento del widget")
         }
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
@@ -67,6 +70,6 @@ object WidgetCache {
 
     fun clear(context: Context) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().apply()
-        previewFile(context).delete()
+        documentFile(context).delete()
     }
 }

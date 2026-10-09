@@ -6,12 +6,17 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.net.Uri
 import android.widget.RemoteViews
 import dev.luxury.cookie.R
+import kotlin.math.min
+import kotlin.math.roundToInt
+import org.json.JSONObject
 
 /**
- * H6: widget best-effort. Muestra la última preview confirmada + hora.
+ * H6/H8: widget best-effort. Renderiza el último documento JSON a máxima
+ * calidad en el tamaño real del widget (nada de thumbnail/imagen).
  * Nunca promete inmediatez: FCM + WorkManager + reconciliación al abrir.
  * Sin updatePeriodMillis (0): sin polling del sistema.
  */
@@ -26,6 +31,9 @@ class CookieWidgetProvider : AppWidgetProvider() {
     }
 
     companion object {
+        private var renderKey: String? = null
+        private var renderBitmap: Bitmap? = null
+
         fun renderAll(context: Context) {
             val manager = AppWidgetManager.getInstance(context)
             val ids = manager.getAppWidgetIds(
@@ -33,11 +41,18 @@ class CookieWidgetProvider : AppWidgetProvider() {
             )
             if (ids.isEmpty()) return
             val cached = WidgetCache.load(context)
-            val bitmap = cached?.let { WidgetCache.loadBitmap(context) }
+            val doc = try {
+                WidgetCache.loadDocument(context)?.let { JSONObject(it) }
+            } catch (_: Exception) {
+                null
+            }
             for (id in ids) {
                 val views = RemoteViews(context.packageName, R.layout.cookie_widget)
-                if (cached != null && bitmap != null) {
-                    views.setImageViewBitmap(R.id.widget_preview, bitmap)
+                if (cached != null && doc != null) {
+                    views.setImageViewBitmap(
+                        R.id.widget_preview,
+                        renderFor(context, manager, id, cached.drawingId, doc),
+                    )
                     views.setTextViewText(R.id.widget_caption, captionOf(cached.createdAt))
                     views.setOnClickPendingIntent(
                         R.id.widget_preview,
@@ -59,6 +74,29 @@ class CookieWidgetProvider : AppWidgetProvider() {
                 }
                 manager.updateAppWidget(id, views)
             }
+        }
+
+        /** Render bajo demanda según el tamaño real del widget (cache en memoria). */
+        private fun renderFor(
+            context: Context,
+            manager: AppWidgetManager,
+            widgetId: Int,
+            drawingId: String,
+            doc: JSONObject,
+        ): Bitmap {
+            val opts = manager.getAppWidgetOptions(widgetId)
+            val density = context.resources.displayMetrics.density
+            val widthPx = (opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, 250) * density)
+                .roundToInt()
+            val heightPx = (opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 250) * density)
+                .roundToInt()
+            val side = min(DrawingRenderer.MAX_SIDE, min(widthPx, heightPx)).coerceAtLeast(64)
+            val key = "$drawingId:$side"
+            if (key == renderKey && renderBitmap != null) return renderBitmap!!
+            val bitmap = DrawingRenderer.renderDocument(widthPx, heightPx, doc)
+            renderKey = key
+            renderBitmap = bitmap
+            return bitmap
         }
 
         private fun captionOf(createdAt: String): String {

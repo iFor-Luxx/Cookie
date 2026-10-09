@@ -22,10 +22,12 @@ export function memoryObjectStore(): ObjectStore & { keys(): string[] } {
   };
 }
 
-/** Límites MVP (SDD §4.7). */
+/** Límites MVP (SDD §4.7). El widget renderiza el doc JSON; la preview
+ *  (miniatura ~16KiB) queda solo para Historia. Historial intocable = caber
+ *  en los 10GB de R2 sin coste (~850k dibujos a ~12KiB/uno). */
 export const LIMITS = {
-  drawingDocBytes: 2 * 1024 * 1024,
-  previewBytes: 512 * 1024,
+  drawingDocBytes: 256 * 1024,
+  previewBytes: 64 * 1024,
   renderBytes: 4 * 1024 * 1024,
   apiJsonBytes: 256 * 1024,
   timelinePage: 50,

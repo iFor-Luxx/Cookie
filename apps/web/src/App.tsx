@@ -2,6 +2,7 @@ import {
   type BrushConfig,
   createDrawingEngine,
   DEFAULT_BRUSHES,
+  serializeDocument,
 } from "@cookie/drawing";
 import { createDraftStore, indexedDbBackend } from "@cookie/platform-web";
 import { CloudOff, LogOut, RefreshCw, Send } from "lucide-react";
@@ -144,7 +145,7 @@ export function App(): React.JSX.Element {
       // Outbox durable: sobrevive offline y reintentos sin duplicar
       // (misma mutationId como Idempotency-Key).
       await syncEngine.enqueue(
-        JSON.stringify(doc),
+        serializeDocument(doc),
         doc.canvas.width,
         doc.canvas.height,
       );
