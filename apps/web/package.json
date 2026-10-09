@@ -11,8 +11,11 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@capacitor/app": "8.1.2",
+    "@capacitor/preferences": "8.0.0",
     "@cookie/core": "workspace:*",
     "@cookie/drawing": "workspace:*",
+    "@cookie/platform-web": "workspace:*",
     "@cookie/protocol": "workspace:*",
     "@cookie/sync": "workspace:*",
     "@radix-ui/react-avatar": "1.1.10",

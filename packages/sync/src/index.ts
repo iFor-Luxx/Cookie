@@ -1,4 +1,4 @@
-// @cookie/sync — outbox + cursors. Determinista: reloj/transporte inyectados.
+// @cookie/sync — outbox + cursors + retries. Determinista (reloj/transporte inyectados).
 export type PublishState =
   | "draft"
   | "queued"
@@ -6,3 +6,7 @@ export type PublishState =
   | "syncing"
   | "synced"
   | "failed";
+
+export * from "./engine";
+export * from "./outbox";
+export * from "./reconcile";

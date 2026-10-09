@@ -1,14 +1,19 @@
 import type {
+  DrawingRecord,
+  IdempotencyRecord,
   Installation,
   Invite,
+  LibraryStore,
   Membership,
+  PairEvent,
   PairingStore,
   PairSpace,
   RecoveryChallenge,
   RecoveryCredential,
+  UploadIntent,
   User,
 } from "@cookie/core";
-import type { Db } from "./db";
+import type { Db, DbWrite } from "./db";
 
 type UserRow = {
   id: string;
@@ -369,7 +374,31 @@ export function sqlPairingStore(db: Db): PairingStore & SessionStore {
         installationId,
       );
     },
+    setPushToken: async (installationId, token) => {
+      await db.run(
+        "UPDATE installations SET push_token = ? WHERE id = ?",
+        token,
+        installationId,
+      );
+    },
   };
+}
+
+/** Tokens FCM vigentes de un espacio (H8 push). Sin revocations. */
+export async function listSpacePushTokens(
+  db: Db,
+  spaceId: string,
+): Promise<string[]> {
+  const rows = await db.all<{ push_token: string | null }>(
+    `SELECT i.push_token FROM installations i
+     JOIN memberships m ON m.user_id = i.user_id
+     WHERE m.pair_space_id = ? AND m.left_at IS NULL
+       AND i.revoked_at IS NULL AND i.push_token IS NOT NULL`,
+    spaceId,
+  );
+  return rows
+    .map((r) => r.push_token)
+    .filter((t): t is string => typeof t === "string");
 }
 
 export interface SessionStore {
@@ -380,4 +409,368 @@ export interface SessionStore {
     installationId: string,
     nowIso: string,
   ): Promise<void>;
+  /** Token FCM por instalación (H6). Null lo limpia (logout/revoke). */
+  setPushToken(installationId: string, token: string | null): Promise<void>;
+}
+
+export interface WsTicketRow {
+  id: string;
+  pair_space_id: string;
+  installation_id: string;
+  created_at: string;
+  expires_at: string;
+  consumed_at: string | null;
+}
+
+export interface WsTicketStore {
+  createTicket(t: WsTicketRow): Promise<void>;
+  /** Consumo atómico: solo válido, vigente y sin consumir. */
+  consumeTicket(id: string, nowIso: string): Promise<WsTicketRow | null>;
+  /** Limpia tickets consumidos o vencidos (GC). Devuelve filas. */
+  deleteSettledTickets(nowIso: string): Promise<number>;
+}
+
+export function sqlWsTicketStore(db: Db): WsTicketStore {
+  return {
+    createTicket: async (t) => {
+      await db.run(
+        "INSERT INTO ws_tickets(id, pair_space_id, installation_id, created_at, expires_at, consumed_at) VALUES (?, ?, ?, ?, ?, ?)",
+        t.id,
+        t.pair_space_id,
+        t.installation_id,
+        t.created_at,
+        t.expires_at,
+        t.consumed_at,
+      );
+    },
+    consumeTicket: async (id, nowIso) => {
+      const row = await db.get<WsTicketRow>(
+        `UPDATE ws_tickets SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL AND expires_at > ?
+         RETURNING *`,
+        nowIso,
+        id,
+        nowIso,
+      );
+      return row ?? null;
+    },
+    deleteSettledTickets: async (nowIso) => {
+      const before = await db.get<{ n: number }>(
+        "SELECT COUNT(*) AS n FROM ws_tickets WHERE consumed_at IS NOT NULL OR expires_at <= ?",
+        nowIso,
+      );
+      await db.run(
+        "DELETE FROM ws_tickets WHERE consumed_at IS NOT NULL OR expires_at <= ?",
+        nowIso,
+      );
+      return before?.n ?? 0;
+    },
+  };
+}
+
+type DrawingRow = {
+  id: string;
+  pair_space_id: string;
+  author_user_id: string;
+  created_at: string;
+  document_key: string;
+  preview_key: string;
+  width: number;
+  height: number;
+  content_hash: string;
+  deleted_at: string | null;
+};
+
+type DrawingRowWithSeq = DrawingRow & { event_seq: number | null };
+
+type EventRow = {
+  pair_space_id: string;
+  seq: number;
+  event_id: string;
+  type: string;
+  actor_user_id: string;
+  entity_id: string;
+  payload_version: number;
+  created_at: string;
+  payload_json: string;
+};
+
+type IdempotencyRow = {
+  scope: string;
+  idempotency_key: string;
+  request_hash: string;
+  response_json: string;
+  created_at: string;
+  expires_at: string;
+};
+
+type IntentRow = {
+  id: string;
+  installation_id: string;
+  pair_space_id: string;
+  drawing_id: string;
+  purpose: string;
+  object_key: string;
+  expected_hash: string;
+  max_bytes: number;
+  created_at: string;
+  expires_at: string;
+  consumed_at: string | null;
+};
+
+const toDrawing = (r: DrawingRow): DrawingRecord => ({
+  id: r.id,
+  pairSpaceId: r.pair_space_id,
+  authorUserId: r.author_user_id,
+  createdAt: r.created_at,
+  documentKey: r.document_key,
+  previewKey: r.preview_key,
+  width: r.width,
+  height: r.height,
+  contentHash: r.content_hash,
+  deletedAt: r.deleted_at,
+});
+
+const toEvent = (r: EventRow): PairEvent => ({
+  seq: r.seq,
+  eventId: r.event_id,
+  type: r.type as PairEvent["type"],
+  actorUserId: r.actor_user_id,
+  entityId: r.entity_id,
+  createdAt: r.created_at,
+});
+
+const toIdempotency = (r: IdempotencyRow): IdempotencyRecord => ({
+  scope: r.scope,
+  key: r.idempotency_key,
+  requestHash: r.request_hash,
+  responseJson: r.response_json,
+  createdAt: r.created_at,
+  expiresAt: r.expires_at,
+});
+
+const toIntent = (r: IntentRow): UploadIntent => ({
+  id: r.id,
+  installationId: r.installation_id,
+  pairSpaceId: r.pair_space_id,
+  drawingId: r.drawing_id,
+  purpose: r.purpose as UploadIntent["purpose"],
+  objectKey: r.object_key,
+  expectedHash: r.expected_hash,
+  maxBytes: r.max_bytes,
+  createdAt: r.created_at,
+  expiresAt: r.expires_at,
+  consumedAt: r.consumed_at,
+});
+
+/** LibraryStore SQL (H4). Publicación atómica via batch. */
+export function sqlLibraryStore(db: Db): LibraryStore {
+  return {
+    findDrawing: async (id) => {
+      const r = await db.get<DrawingRow>(
+        "SELECT * FROM drawings WHERE id = ?",
+        id,
+      );
+      return r ? toDrawing(r) : null;
+    },
+    insertDrawingWithEvent: async ({
+      drawing,
+      event,
+      idempotency,
+      responseForSeq,
+    }) => {
+      const next = await db.get<{ next: number }>(
+        "SELECT COALESCE(MAX(seq), 0) + 1 AS next FROM events WHERE pair_space_id = ?",
+        drawing.pairSpaceId,
+      );
+      const seq = next?.next ?? 1;
+      const ops: DbWrite[] = [
+        {
+          sql: "INSERT INTO drawings(id, pair_space_id, author_user_id, created_at, document_key, preview_key, width, height, content_hash, deleted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          params: [
+            drawing.id,
+            drawing.pairSpaceId,
+            drawing.authorUserId,
+            drawing.createdAt,
+            drawing.documentKey,
+            drawing.previewKey,
+            drawing.width,
+            drawing.height,
+            drawing.contentHash,
+            drawing.deletedAt,
+          ],
+        },
+        {
+          sql: "INSERT INTO events(pair_space_id, seq, event_id, type, actor_user_id, entity_id, payload_version, created_at, payload_json) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)",
+          params: [
+            drawing.pairSpaceId,
+            seq,
+            event.eventId,
+            event.type,
+            event.actorUserId,
+            event.entityId,
+            event.createdAt,
+            JSON.stringify({
+              drawingId: drawing.id,
+              contentHash: drawing.contentHash,
+            }),
+          ],
+        },
+      ];
+      if (idempotency) {
+        ops.push({
+          sql: "INSERT INTO idempotency_records(scope, idempotency_key, request_hash, response_json, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)",
+          params: [
+            idempotency.scope,
+            idempotency.key,
+            idempotency.requestHash,
+            responseForSeq(seq),
+            idempotency.createdAt,
+            idempotency.expiresAt,
+          ],
+        });
+      }
+      await db.batch(ops);
+      return seq;
+    },
+    tombstoneDrawingWithEvent: async (drawingId, deletedAt, event) => {
+      const drawing = await db.get<DrawingRow>(
+        "SELECT * FROM drawings WHERE id = ?",
+        drawingId,
+      );
+      if (!drawing) throw new Error("drawing not found for tombstone");
+      const next = await db.get<{ next: number }>(
+        "SELECT COALESCE(MAX(seq), 0) + 1 AS next FROM events WHERE pair_space_id = ?",
+        drawing.pair_space_id,
+      );
+      const seq = next?.next ?? 1;
+      await db.batch([
+        {
+          sql: "UPDATE drawings SET deleted_at = ? WHERE id = ?",
+          params: [deletedAt, drawingId],
+        },
+        {
+          sql: "INSERT INTO events(pair_space_id, seq, event_id, type, actor_user_id, entity_id, payload_version, created_at, payload_json) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)",
+          params: [
+            drawing.pair_space_id,
+            seq,
+            event.eventId,
+            event.type,
+            event.actorUserId,
+            event.entityId,
+            event.createdAt,
+            JSON.stringify({ drawingId, deletedAt }),
+          ],
+        },
+      ]);
+      return seq;
+    },
+    listDrawingsVisible: async (spaceId, after, limit) => {
+      const base = `SELECT d.*, e.seq AS event_seq FROM drawings d
+        LEFT JOIN events e ON e.pair_space_id = d.pair_space_id
+          AND e.entity_id = d.id AND e.type = 'drawing.created'
+        WHERE d.pair_space_id = ? AND d.deleted_at IS NULL`;
+      const order = " ORDER BY d.created_at DESC, d.id DESC LIMIT ?";
+      const rows = after
+        ? await db.all<DrawingRowWithSeq>(
+            `${base} AND (d.created_at < ? OR (d.created_at = ? AND d.id < ?))${order}`,
+            spaceId,
+            after.createdAt,
+            after.createdAt,
+            after.id,
+            limit + 1,
+          )
+        : await db.all<DrawingRowWithSeq>(
+            `${base}${order}`,
+            spaceId,
+            limit + 1,
+          );
+      return rows.map((r) => ({
+        drawing: toDrawing(r),
+        eventSeq: r.event_seq ?? 0,
+      }));
+    },
+    listEvents: async (spaceId, afterSeq, limit) => {
+      const rows = await db.all<EventRow>(
+        "SELECT * FROM events WHERE pair_space_id = ? AND seq > ? ORDER BY seq ASC LIMIT ?",
+        spaceId,
+        afterSeq,
+        limit,
+      );
+      return rows.map(toEvent);
+    },
+    currentSeq: async (spaceId) => {
+      const r = await db.get<{ current: number }>(
+        "SELECT COALESCE(MAX(seq), 0) AS current FROM events WHERE pair_space_id = ?",
+        spaceId,
+      );
+      return r?.current ?? 0;
+    },
+    minSeq: async (spaceId) => {
+      const r = await db.get<{ min: number | null }>(
+        "SELECT MIN(seq) AS min FROM events WHERE pair_space_id = ?",
+        spaceId,
+      );
+      return r?.min ?? null;
+    },
+    getIdempotency: async (scope, key) => {
+      const r = await db.get<IdempotencyRow>(
+        "SELECT * FROM idempotency_records WHERE scope = ? AND idempotency_key = ?",
+        scope,
+        key,
+      );
+      return r ? toIdempotency(r) : null;
+    },
+    createUploadIntent: async (i) => {
+      await db.run(
+        "INSERT INTO upload_intents(id, installation_id, pair_space_id, drawing_id, purpose, object_key, expected_hash, max_bytes, created_at, expires_at, consumed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        i.id,
+        i.installationId,
+        i.pairSpaceId,
+        i.drawingId,
+        i.purpose,
+        i.objectKey,
+        i.expectedHash,
+        i.maxBytes,
+        i.createdAt,
+        i.expiresAt,
+        i.consumedAt,
+      );
+    },
+    findUploadIntent: async (id) => {
+      const r = await db.get<IntentRow>(
+        "SELECT * FROM upload_intents WHERE id = ?",
+        id,
+      );
+      return r ? toIntent(r) : null;
+    },
+    consumeUploadIntent: async (id, consumedAt) => {
+      await db.run(
+        "UPDATE upload_intents SET consumed_at = ? WHERE id = ?",
+        consumedAt,
+        id,
+      );
+    },
+    listExpiredIntents: async (nowIso, limit) => {
+      const rows = await db.all<IntentRow>(
+        "SELECT * FROM upload_intents WHERE consumed_at IS NULL AND expires_at <= ? LIMIT ?",
+        nowIso,
+        limit,
+      );
+      return rows.map(toIntent);
+    },
+    deleteIntent: async (id) => {
+      await db.run("DELETE FROM upload_intents WHERE id = ?", id);
+    },
+    deleteExpiredIdempotency: async (nowIso) => {
+      const before = await db.get<{ n: number }>(
+        "SELECT COUNT(*) AS n FROM idempotency_records WHERE expires_at <= ?",
+        nowIso,
+      );
+      await db.run(
+        "DELETE FROM idempotency_records WHERE expires_at <= ?",
+        nowIso,
+      );
+      return before?.n ?? 0;
+    },
+  };
 }

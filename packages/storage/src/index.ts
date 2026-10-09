@@ -3,3 +3,5 @@ export interface Codec<T> {
   encode(value: T): Uint8Array;
   decode(bytes: Uint8Array): T;
 }
+
+export * from "./objects";

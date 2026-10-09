@@ -1,2 +1,3 @@
-// server/realtime — Durable Object PairRoom: fanout WS post-commit (H5).
-export {};
+// @cookie/server-realtime
+export * from "./hub";
+export * from "./pair-room";

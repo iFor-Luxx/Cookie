@@ -4,4 +4,8 @@
     <string name="title_activity_main">Cookie</string>
     <string name="package_name">dev.luxury.cookie</string>
     <string name="custom_url_scheme">dev.luxury.cookie</string>
+    <!-- H6 widget -->
+    <string name="widget_desc">Último dibujo compartido de Cookie</string>
+    <string name="widget_preview_desc">Último dibujo compartido</string>
+    <string name="widget_empty">Sin dibujos todavía</string>
 </resources>

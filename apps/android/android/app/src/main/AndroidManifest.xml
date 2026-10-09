@@ -22,7 +22,37 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- H6: tap del widget abre el dibujo en la app. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="cookie" android:host="drawing" />
+            </intent-filter>
+
         </activity>
+
+        <!-- H6: widget nativo (RemoteViews). Best-effort, ver docs. -->
+        <receiver
+            android:name=".widget.CookieWidgetProvider"
+            android:exported="false"
+            android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/cookie_widget_info" />
+        </receiver>
+
+        <!-- H6: FCM data messages → WorkManager. Inactivo sin google-services.json. -->
+        <service
+            android:name=".push.CookieMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
 
         <provider
             android:name="androidx.core.content.FileProvider"

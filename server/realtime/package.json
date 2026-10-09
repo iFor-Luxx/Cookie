@@ -2,5 +2,14 @@
   "name": "@cookie/server-realtime",
   "version": "0.0.1",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./hub": "./src/hub.ts"
+  },
+  "types": "./src/index.ts",
+  "sideEffects": false,
+  "dependencies": {
+    "@cookie/core": "workspace:*"
+  }
 }

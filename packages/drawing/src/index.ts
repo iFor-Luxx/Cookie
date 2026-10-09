@@ -1,16 +1,7 @@
-// @cookie/drawing — modelo canónico + DrawingEngine (sin DOM/React).
-export const DRAWING_SCHEMA_VERSION = 1 as const;
-export type PointerSample = {
-  readonly x: number;
-  readonly y: number;
-  readonly pressure: number;
-  readonly tilt: number;
-};
-export interface DrawingEngine {
-  beginStroke(input: PointerSample, tool: unknown): void;
-  appendSamples(samples: readonly PointerSample[]): void;
-  endStroke(): string;
-  undo(): boolean;
-  redo(): boolean;
-  dispose(): void;
-}
+// @cookie/drawing — modelo, engine y renderer. Sin DOM/React (ver canvas2d.ts).
+
+export * from "./canvas2d";
+export * from "./engine";
+export * from "./model";
+export * from "./renderer";
+export * from "./rng";

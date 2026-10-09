@@ -74,6 +74,11 @@ export const updateMeRequest = z.object({
 });
 export const updateMeResponse = meResponse;
 
+// POST /v1/installations/push-token — registra el token FCM (H6, Android).
+export const pushTokenRequest = z.object({
+  token: z.string().min(1).max(4096),
+});
+
 // POST /v1/pair-spaces — crea espacio + primer miembro + recovery secret
 export const createPairSpaceResponse = z.object({
   pairSpaceId: z.string(),
@@ -135,4 +140,117 @@ export const recoveryCompleteResponse = z.object({
   accessToken: z.string(),
   refreshToken: z.string(),
   expiresInSeconds: z.number().int().positive(),
+});
+
+// ---- H4: uploads, publicación, timeline ----
+
+export const uploadPurposeSchema = z.enum(["drawing-doc", "drawing-preview"]);
+export const hexHashSchema = z.string().regex(/^[0-9a-f]{64}$/);
+
+// POST /v1/uploads/intents — el servidor asigna objectKey y TTL.
+export const uploadIntentRequest = z.object({
+  drawingId: z.string().min(1),
+  purpose: uploadPurposeSchema,
+  contentHash: hexHashSchema,
+  byteSize: z.number().int().positive(),
+  contentType: z.string().min(1),
+});
+export const uploadIntentResponse = z.object({
+  uploadId: z.string(),
+  expiresAt: z.string(),
+});
+
+// PUT /v1/uploads/{id} — body binario; respuesta JSON mínima.
+export const uploadCompleteResponse = z.object({
+  ok: z.literal(true),
+  size: z.number().int(),
+});
+
+export const drawingMetaSchema = z.object({
+  id: z.string(),
+  pairSpaceId: z.string(),
+  authorUserId: z.string(),
+  createdAt: z.string(),
+  width: z.number().int().positive(),
+  height: z.number().int().positive(),
+  contentHash: hexHashSchema,
+  eventSeq: z.number().int(),
+  deletedAt: z.string().nullable(),
+});
+
+// POST /v1/pair-spaces/{id}/drawings — requiere Idempotency-Key.
+export const publishDrawingRequest = z.object({
+  drawingId: z.string().min(1),
+  contentHash: hexHashSchema,
+  width: z.number().int().positive().max(4096),
+  height: z.number().int().positive().max(4096),
+});
+export const publishDrawingResponse = z.object({
+  drawing: drawingMetaSchema,
+});
+
+// GET /v1/pair-spaces/{id}/drawings?cursor=&limit=
+export const timelineResponse = z.object({
+  drawings: z.array(drawingMetaSchema),
+  nextCursor: z.string().nullable(),
+});
+
+export const pairEventSchema = z.object({
+  seq: z.number().int(),
+  eventId: z.string(),
+  type: z.enum(["drawing.created", "drawing.deleted", "profile.updated"]),
+  actorUserId: z.string(),
+  entityId: z.string(),
+  createdAt: z.string(),
+});
+
+// GET /v1/pair-spaces/{id}/events?afterSeq=N
+export const eventsResponse = z.object({
+  events: z.array(pairEventSchema),
+  currentSeq: z.number().int(),
+  snapshotRequired: z.boolean(),
+});
+
+// GET /v1/drawings/{id}
+export const drawingResponse = z.object({
+  drawing: drawingMetaSchema,
+});
+
+// DELETE /v1/drawings/{id} — tombstone idempotente.
+export const deleteDrawingResponse = z.object({
+  ok: z.literal(true),
+  eventSeq: z.number().int(),
+});
+
+// ---- H5: realtime ----
+
+// GET /v1/pair-spaces/{id}/realtime — ticket de un solo uso, TTL segundos.
+// El ticket viaja en header (nunca el bearer) y se consume al aceptar el WS.
+export const realtimeTicketResponse = z.object({
+  ticket: z.string(),
+  expiresAt: z.string(),
+});
+
+// Mensajes WS (pair.v1). Nunca documento ni imagen por WS (máx 64 KiB).
+export const wsHelloSchema = z.object({
+  type: z.literal("hello"),
+  protocol: z.literal(1),
+  lastEventSeq: z.number().int().min(0),
+  installationId: z.string(),
+});
+export const wsReadySchema = z.object({
+  type: z.literal("ready"),
+  currentSeq: z.number().int(),
+  serverTime: z.string(),
+});
+export const wsServerEventSchema = z.object({
+  type: z.enum([
+    "drawing.created",
+    "drawing.deleted",
+    "profile.updated",
+    "presence.changed",
+    "sync.ack",
+  ]),
+  seq: z.number().int().optional(),
+  eventId: z.string().optional(),
 });

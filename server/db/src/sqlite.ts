@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { fileURLToPath } from "node:url";
-import type { Db } from "./db";
+import type { Db, DbWrite } from "./db";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -41,6 +41,20 @@ export function sqliteDb(db: DatabaseSync): Db {
       db.prepare(sql).all(...toParams(params)) as T[],
     run: async (sql: string, ...params: unknown[]): Promise<void> => {
       db.prepare(sql).run(...toParams(params));
+    },
+    batch: async (ops: DbWrite[]): Promise<void> => {
+      db.exec("BEGIN IMMEDIATE");
+      try {
+        for (const op of ops) db.prepare(op.sql).run(...toParams(op.params));
+        db.exec("COMMIT");
+      } catch (e) {
+        try {
+          db.exec("ROLLBACK");
+        } catch {
+          // Ya en rollback: conservar el error original.
+        }
+        throw e;
+      }
     },
   };
 }

@@ -12,6 +12,7 @@
     "@capacitor/android": "8.0.0",
     "@capacitor/app": "8.1.2",
     "@capacitor/core": "8.0.0",
+    "@capacitor/preferences": "8.0.0",
     "@capacitor/status-bar": "8.0.0",
     "@cookie/core": "workspace:*"
   },

@@ -40,6 +40,7 @@ function stubCrypto(): CryptoPort {
     hashSecret: async (s: string) => `h:${s}`,
     verifySecret: async (s: string, h: string) => h === `h:${s}`,
     lookupHash: async (s: string) => `l:${s}`,
+    sha256Hex: async (s: string) => `s:${s}`,
   };
 }
 

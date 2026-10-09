@@ -1,0 +1,23 @@
+{
+  "name": "cookie-staging",
+  "compatibility_date": "2026-10-01",
+  "main": "../../server/api/src/worker.ts",
+  "vars": {
+    "ALLOWED_ORIGINS": "capacitor://localhost"
+  },
+  // Secretos SOLO vía `wrangler secret put --env staging`:
+  // ACCESS_SECRET (>=32 bytes), INTERNAL_SECRET
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "cookie-staging",
+      "migrations_dir": "../../server/db/migrations"
+    }
+  ],
+  "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "cookie-staging" }],
+  "durable_objects": {
+    "bindings": [{ "name": "PAIR_ROOM", "class_name": "PairRoom" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PairRoom"] }],
+  "triggers": { "crons": ["0 4 * * *"] }
+}

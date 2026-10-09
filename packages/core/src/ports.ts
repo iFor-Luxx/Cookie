@@ -26,6 +26,8 @@ export interface CryptoPort {
    * secretos de baja entropía (esos van con salt via hashSecret).
    */
   lookupHash(secret: string): Promise<string>;
+  /** SHA-256 hex de bytes o texto (hashes de contenido, idempotencia). */
+  sha256Hex(data: Uint8Array | string): Promise<string>;
 }
 
 export type DomainErrorCode =
@@ -37,9 +39,9 @@ export type DomainErrorCode =
   | "INVITE_ALREADY_USED"
   | "NOT_FOUND";
 
-export type Result<T> =
+export type Result<T, E extends string = DomainErrorCode> =
   | { readonly ok: true; readonly value: T }
-  | { readonly ok: false; readonly code: DomainErrorCode };
+  | { readonly ok: false; readonly code: E };
 
 /** Persistencia que cada caso de uso necesita. Implementada por server (D1). */
 export interface PairingStore {

@@ -2,5 +2,11 @@
   "name": "@cookie/server-jobs",
   "version": "0.0.1",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./fcm": "./src/fcm.ts"
+  },
+  "types": "./src/index.ts",
+  "sideEffects": false
 }

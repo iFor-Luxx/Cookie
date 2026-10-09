@@ -1,117 +1,47 @@
 // server/api — router H2 (pairing). Handlers delgados: parse+validate+auth,
 // caso de uso en core, mapeo de errores a HTTP. Sin framework.
 import {
-  type ClockPort,
-  type CryptoPort,
   completeRecovery,
   consumeInvite,
   createInvite,
   createPairSpace,
-  type DomainErrorCode,
-  type Installation,
-  type PairingStore,
   registerInstallation,
   revokeInstallation,
   startRecovery,
-  type User,
   updateProfile,
 } from "@cookie/core";
 import {
   consumeInviteRequest,
   createInstallationRequest,
   createInviteRequest,
-  type errorCodeSchema,
+  pushTokenRequest,
   recoveryChallengeRequest,
   recoveryCompleteRequest,
   updateMeRequest,
 } from "@cookie/protocol";
-import type { SessionStore } from "@cookie/server-db";
+import {
+  type AppDeps,
+  auth,
+  bearer,
+  checkRate,
+  domainErr,
+  err,
+  rateKeyInstallation,
+  rateKeyIp,
+  readJson,
+} from "./http";
+import { handleLibraryRoutes } from "./library";
+import {
+  corsHeaders,
+  logRequest,
+  RATE_LIMITS,
+  routeTemplate,
+} from "./middleware";
 import {
   ACCESS_TOKEN_TTL_SECONDS,
   REFRESH_TOKEN_TTL_SECONDS,
   signAccessToken,
-  verifyAccessToken,
 } from "./tokens";
-
-export interface AppDeps {
-  store: PairingStore & SessionStore;
-  crypto: CryptoPort;
-  clock: ClockPort;
-  accessSecret: Uint8Array;
-}
-
-type ErrorCode = ReturnType<typeof errorCodeSchema.parse>;
-
-function err(
-  requestId: string,
-  code: ErrorCode,
-  message: string,
-  status: number,
-  retryable = false,
-): Response {
-  return Response.json(
-    { error: { code, message, retryable }, requestId },
-    { status },
-  );
-}
-
-const domainStatus: Record<
-  DomainErrorCode,
-  { status: number; code: ErrorCode }
-> = {
-  VALIDATION_ERROR: { status: 400, code: "VALIDATION_ERROR" },
-  UNAUTHENTICATED: { status: 401, code: "UNAUTHENTICATED" },
-  FORBIDDEN: { status: 403, code: "FORBIDDEN" },
-  NOT_FOUND: { status: 404, code: "NOT_FOUND" },
-  PAIRSPACE_FULL: { status: 409, code: "PAIRSPACE_FULL" },
-  INVITE_EXPIRED: { status: 410, code: "INVITE_EXPIRED" },
-  INVITE_ALREADY_USED: { status: 409, code: "INVITE_ALREADY_USED" },
-};
-
-function domainErr(
-  requestId: string,
-  code: DomainErrorCode,
-  message: string,
-): Response {
-  const m = domainStatus[code];
-  return err(requestId, m.code, message, m.status);
-}
-
-function bearer(req: Request): string | null {
-  const h = req.headers.get("authorization");
-  const m = /^Bearer (.+)$/.exec(h ?? "");
-  return m?.[1] ?? null;
-}
-
-async function json(req: Request): Promise<unknown> {
-  try {
-    return await req.json();
-  } catch {
-    return undefined;
-  }
-}
-
-interface Authed {
-  installation: Installation;
-  user: User;
-}
-
-async function auth(deps: AppDeps, req: Request): Promise<Authed | null> {
-  const token = bearer(req);
-  if (!token) return null;
-  const claims = await verifyAccessToken(deps.accessSecret, token);
-  if (!claims) return null;
-  const installation = await deps.store.findInstallation(claims.installationId);
-  if (!installation || installation.revokedAt !== null) return null;
-  if (installation.userId !== claims.userId) return null;
-  const user = await deps.store.findUser(claims.userId);
-  if (!user) return null;
-  await deps.store.updateInstallation({
-    ...installation,
-    lastSeenAt: deps.clock.nowIso(),
-  });
-  return { installation, user };
-}
 
 async function issueSession(
   deps: AppDeps,
@@ -145,10 +75,15 @@ async function issueSession(
 }
 
 export function createApp(deps: AppDeps): (req: Request) => Promise<Response> {
-  return async (req: Request): Promise<Response> => {
+  const dispatch = async (
+    req: Request,
+    requestId: string,
+  ): Promise<Response> => {
     const url = new URL(req.url);
-    const requestId = deps.crypto.newId();
-    if (!url.pathname.startsWith("/v1/"))
+    if (
+      !url.pathname.startsWith("/v1/") &&
+      !url.pathname.startsWith("/internal/")
+    )
       return err(requestId, "NOT_FOUND", "Ruta desconocida", 404);
     const proto = req.headers.get("x-protocol-version");
     if (proto !== null && proto !== "1") {
@@ -167,7 +102,7 @@ export function createApp(deps: AppDeps): (req: Request) => Promise<Response> {
 
     // POST /v1/installations — registro inicial (throttle por IP: pendiente H7).
     if (req.method === "POST" && url.pathname === "/v1/installations") {
-      const parsed = createInstallationRequest.safeParse(await json(req));
+      const parsed = createInstallationRequest.safeParse(await readJson(req));
       if (!parsed.success) {
         return err(requestId, "VALIDATION_ERROR", "Petición inválida", 400);
       }
@@ -256,6 +191,21 @@ export function createApp(deps: AppDeps): (req: Request) => Promise<Response> {
         me.installation.id,
         deps.clock.nowIso(),
       );
+      await deps.store.setPushToken(me.installation.id, null);
+      return Response.json({ ok: true, requestId });
+    }
+
+    // POST /v1/installations/push-token — H6: token FCM de esta instalación.
+    if (
+      req.method === "POST" &&
+      url.pathname === "/v1/installations/push-token"
+    ) {
+      if (!me) return UNAUTH();
+      const parsed = pushTokenRequest.safeParse(await readJson(req));
+      if (!parsed.success) {
+        return err(requestId, "VALIDATION_ERROR", "Petición inválida", 400);
+      }
+      await deps.store.setPushToken(me.installation.id, parsed.data.token);
       return Response.json({ ok: true, requestId });
     }
 
@@ -274,7 +224,7 @@ export function createApp(deps: AppDeps): (req: Request) => Promise<Response> {
     // PATCH /v1/me
     if (req.method === "PATCH" && url.pathname === "/v1/me") {
       if (!me) return UNAUTH();
-      const parsed = updateMeRequest.safeParse(await json(req));
+      const parsed = updateMeRequest.safeParse(await readJson(req));
       if (!parsed.success) {
         return err(requestId, "VALIDATION_ERROR", "Petición inválida", 400);
       }
@@ -328,9 +278,16 @@ export function createApp(deps: AppDeps): (req: Request) => Promise<Response> {
     );
     if (req.method === "POST" && inviteMatch) {
       if (!me) return UNAUTH();
+      const limited = checkRate(
+        deps,
+        requestId,
+        rateKeyInstallation(me.installation.id, "invite-create"),
+        RATE_LIMITS.inviteCreate,
+      );
+      if (limited) return limited;
       const spaceId = inviteMatch[1];
       if (!spaceId) return err(requestId, "NOT_FOUND", "Ruta desconocida", 404);
-      const parsed = createInviteRequest.safeParse((await json(req)) ?? {});
+      const parsed = createInviteRequest.safeParse((await readJson(req)) ?? {});
       if (!parsed.success) {
         return err(requestId, "VALIDATION_ERROR", "Petición inválida", 400);
       }
@@ -355,10 +312,17 @@ export function createApp(deps: AppDeps): (req: Request) => Promise<Response> {
     const challengeMatch =
       /^\/v1\/pair-spaces\/([^/]+)\/recovery-challenges$/.exec(url.pathname);
     if (req.method === "POST" && challengeMatch) {
+      const limited = checkRate(
+        deps,
+        requestId,
+        rateKeyIp(req, "recovery-challenge"),
+        RATE_LIMITS.recovery,
+      );
+      if (limited) return limited;
       const spaceId = challengeMatch[1];
       if (!spaceId) return err(requestId, "NOT_FOUND", "Ruta desconocida", 404);
       const parsed = recoveryChallengeRequest.safeParse(
-        (await json(req)) ?? {},
+        (await readJson(req)) ?? {},
       );
       if (!parsed.success) {
         return err(requestId, "VALIDATION_ERROR", "Petición inválida", 400);
@@ -395,7 +359,7 @@ export function createApp(deps: AppDeps): (req: Request) => Promise<Response> {
       const installationId = revokeMatch[1];
       if (!installationId)
         return err(requestId, "NOT_FOUND", "Ruta desconocida", 404);
-      const body = (await json(req)) as { confirm?: unknown };
+      const body = (await readJson(req)) as { confirm?: unknown };
       const res = await revokeInstallation(deps.store, deps.clock, {
         actorUserId: me.user.id,
         installationId,
@@ -406,12 +370,31 @@ export function createApp(deps: AppDeps): (req: Request) => Promise<Response> {
         res.value.id,
         deps.clock.nowIso(),
       );
+      await deps.store.setPushToken(res.value.id, null);
+      // Cerrar sockets vivos de la instalación en cada espacio del usuario.
+      for (const m of await deps.store.userSpaces(me.user.id)) {
+        await deps
+          .notify({
+            spaceId: m.pairSpaceId,
+            type: "installation.revoked",
+            installationId: res.value.id,
+            actorUserId: me.user.id,
+          })
+          .catch(() => undefined);
+      }
       return Response.json({ ok: true, requestId });
     }
 
     // POST /v1/invites/consume — sin auth (el segundo miembro aún no tiene credenciales).
     if (req.method === "POST" && url.pathname === "/v1/invites/consume") {
-      const parsed = consumeInviteRequest.safeParse(await json(req));
+      const limited = checkRate(
+        deps,
+        requestId,
+        rateKeyIp(req, "invite-consume"),
+        RATE_LIMITS.inviteConsume,
+      );
+      if (limited) return limited;
+      const parsed = consumeInviteRequest.safeParse(await readJson(req));
       if (!parsed.success) {
         return err(requestId, "VALIDATION_ERROR", "Petición inválida", 400);
       }
@@ -449,7 +432,14 @@ export function createApp(deps: AppDeps): (req: Request) => Promise<Response> {
 
     // POST /v1/recovery/complete
     if (req.method === "POST" && url.pathname === "/v1/recovery/complete") {
-      const parsed = recoveryCompleteRequest.safeParse(await json(req));
+      const limited = checkRate(
+        deps,
+        requestId,
+        rateKeyIp(req, "recovery-complete"),
+        RATE_LIMITS.recovery,
+      );
+      if (limited) return limited;
+      const parsed = recoveryCompleteRequest.safeParse(await readJson(req));
       if (!parsed.success) {
         return err(requestId, "VALIDATION_ERROR", "Petición inválida", 400);
       }
@@ -486,6 +476,52 @@ export function createApp(deps: AppDeps): (req: Request) => Promise<Response> {
       );
     }
 
+    const libraryRes = await handleLibraryRoutes(deps, req, url, requestId);
+    if (libraryRes) return libraryRes;
+
     return err(requestId, "NOT_FOUND", "Ruta desconocida", 404);
+  };
+
+  return async (req: Request): Promise<Response> => {
+    const start = Date.now();
+    const requestId = deps.crypto.newId();
+    const cors = corsHeaders(req, deps.allowedOrigins);
+    if (req.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: cors });
+    }
+    // Cap global JSON 256 KiB (SDD §4.7). Binarios (PUT uploads) exentos.
+    const contentType = req.headers.get("content-type") ?? "";
+    if (
+      contentType.includes("json") &&
+      (req.method === "POST" || req.method === "PATCH" || req.method === "PUT")
+    ) {
+      const declared = Number.parseInt(
+        req.headers.get("content-length") ?? "0",
+        10,
+      );
+      if (Number.isInteger(declared) && declared > 256 * 1024) {
+        const res = err(
+          requestId,
+          "QUOTA_EXCEEDED",
+          "Cuerpo demasiado grande",
+          413,
+        );
+        for (const [k, v] of cors) res.headers.set(k, v);
+        return res;
+      }
+    }
+    const url = new URL(req.url);
+    const res = await dispatch(req, requestId);
+    for (const [k, v] of cors) res.headers.set(k, v);
+    const template = routeTemplate(req.method, url.pathname);
+    deps.metrics.record(template, res.status);
+    logRequest({
+      requestId,
+      method: req.method,
+      route: template,
+      status: res.status,
+      ms: Date.now() - start,
+    });
+    return res;
   };
 }

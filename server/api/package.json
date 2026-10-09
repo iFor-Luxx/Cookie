@@ -15,8 +15,11 @@
   "sideEffects": false,
   "dependencies": {
     "@cookie/core": "workspace:*",
+    "@cookie/drawing": "workspace:*",
     "@cookie/protocol": "workspace:*",
     "@cookie/server-db": "workspace:*",
+    "@cookie/server-realtime": "workspace:*",
+    "@cookie/storage": "workspace:*",
     "jose": "6.1.0"
   }
 }

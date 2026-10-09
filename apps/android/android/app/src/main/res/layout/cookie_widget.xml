@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- H6: layout del widget. Solo vistas simples (RemoteViews): última preview
+     confirmada + hora aproximada. Nada de historial ni secretos aquí. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@android:color/white"
+    android:padding="8dp">
+
+    <ImageView
+        android:id="@+id/widget_preview"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:scaleType="centerCrop"
+        android:contentDescription="@string/widget_preview_desc" />
+
+    <TextView
+        android:id="@+id/widget_caption"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="11sp"
+        android:textColor="#666666"
+        android:maxLines="1"
+        android:ellipsize="end" />
+
+</LinearLayout>

@@ -1,6 +1,6 @@
-import type { Db } from "./db";
+import type { Db, DbWrite } from "./db";
 
-/** Filas D1: prepare/bind/first/all/run. Interfaz estructural, sin SDK. */
+/** Filas D1: prepare/bind/first/all/run/batch. Interfaz estructural, sin SDK. */
 export interface D1Like {
   prepare(sql: string): {
     bind(...params: unknown[]): {
@@ -9,6 +9,7 @@ export interface D1Like {
       run(): Promise<unknown>;
     };
   };
+  batch(statements: unknown[]): Promise<unknown>;
 }
 
 /** Adapter D1 → Db para el Worker en prod. */
@@ -31,6 +32,9 @@ export function d1Db(d1: D1Like): Db {
         .prepare(sql)
         .bind(...params)
         .run();
+    },
+    batch: async (ops: DbWrite[]): Promise<void> => {
+      await d1.batch(ops.map((op) => d1.prepare(op.sql).bind(...op.params)));
     },
   };
 }

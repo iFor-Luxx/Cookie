@@ -36,6 +36,16 @@ export function webCryptoPort(): CryptoPort {
         .map((b) => b.toString(16).padStart(2, "0"))
         .join("");
     },
+    sha256Hex: async (data: Uint8Array | string) => {
+      const bytes: Uint8Array<ArrayBuffer> =
+        typeof data === "string"
+          ? new TextEncoder().encode(data)
+          : Uint8Array.from(data);
+      const digest = await crypto.subtle.digest("SHA-256", bytes);
+      return [...new Uint8Array(digest)]
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+    },
     verifySecret: async (secret: string, hash: string) => {
       const parts = hash.split("$");
       const iterationsRaw = parts[1];

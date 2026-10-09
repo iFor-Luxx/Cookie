@@ -1,0 +1,24 @@
+{
+  "name": "cookie-prod",
+  "compatibility_date": "2026-10-01",
+  "main": "../../server/api/src/worker.ts",
+  "vars": {
+    "ALLOWED_ORIGINS": "capacitor://localhost"
+  },
+  // Secretos SOLO vía `wrangler secret put --env production`.
+  // Crear DB/bucket con `wrangler d1 create` / `r2 bucket create` y pegar IDs.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "cookie-prod",
+      "database_id": "REEMPLAZAR-d1-database-id",
+      "migrations_dir": "../../server/db/migrations"
+    }
+  ],
+  "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "cookie-prod" }],
+  "durable_objects": {
+    "bindings": [{ "name": "PAIR_ROOM", "class_name": "PairRoom" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PairRoom"] }],
+  "triggers": { "crons": ["0 4 * * *"] }
+}
