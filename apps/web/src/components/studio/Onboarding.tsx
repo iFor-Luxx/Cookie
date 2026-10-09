@@ -191,6 +191,44 @@ export function Onboarding({
             />
           ) : attempt ? (
             <>
+              <div className="flex flex-col items-center gap-2">
+                <p className="text-sm text-muted-foreground">
+                  Escanea este QR con tu celular para entrar a tu misma sala,
+                  sin crear otra.
+                </p>
+                <InviteQr
+                  payload={loginQrPayload(attempt.attemptId, attempt.code)}
+                  label="QR de entrada"
+                />
+              </div>
+              {waiting && (
+                <p className="text-sm text-muted-foreground">
+                  Esperando aprobación…
+                </p>
+              )}
+              {attemptError && (
+                <p className="text-sm text-destructive">{attemptError}</p>
+              )}
+              <div className="flex gap-2">
+                <Button
+                  variant="secondary"
+                  onClick={() => void openAttempt()}
+                >
+                  Generar otro
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setAttempt(null);
+                    setAttemptError(null);
+                  }}
+                >
+                  Volver
+                </Button>
+              </div>
+            </>
+          ) : inviteToken ? (
+            <>
               <p className="text-sm text-muted-foreground">
                 Invitación lista. Pon tu nombre una sola vez para entrar.
               </p>
