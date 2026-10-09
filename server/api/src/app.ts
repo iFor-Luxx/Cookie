@@ -1,19 +1,25 @@
 // server/api — router H2 (pairing). Handlers delgados: parse+validate+auth,
 // caso de uso en core, mapeo de errores a HTTP. Sin framework.
 import {
+  approveLoginAttempt,
   completeRecovery,
   consumeInvite,
   createInvite,
+  createLoginAttempt,
   createPairSpace,
+  pollLoginAttempt,
   registerInstallation,
   revokeInstallation,
   startRecovery,
   updateProfile,
 } from "@cookie/core";
 import {
+  approveLoginAttemptRequest,
   consumeInviteRequest,
   createInstallationRequest,
   createInviteRequest,
+  createLoginAttemptRequest,
+  pollLoginAttemptRequest,
   pushTokenRequest,
   recoveryChallengeRequest,
   recoveryCompleteRequest,
@@ -385,12 +391,15 @@ export function createApp(deps: AppDeps): (req: Request) => Promise<Response> {
       return Response.json({ ok: true, requestId });
     }
 
-    // POST /v1/invites/consume — sin auth (el segundo miembro aún no tiene credenciales).
+    // POST /v1/invites/consume — autenticado: vincula al usuario existente.
+    // Sin segundo nombre (el onboarding ya registró la identidad) y sin
+    // sesión nueva (el cliente conserva la suya).
     if (req.method === "POST" && url.pathname === "/v1/invites/consume") {
+      if (!me) return UNAUTH();
       const limited = checkRate(
         deps,
         requestId,
-        rateKeyIp(req, "invite-consume"),
+        rateKeyInstallation(me.installation.id, "invite-consume"),
         RATE_LIMITS.inviteConsume,
       );
       if (limited) return limited;
@@ -400,15 +409,130 @@ export function createApp(deps: AppDeps): (req: Request) => Promise<Response> {
       }
       const res = await consumeInvite(deps.store, deps.crypto, deps.clock, {
         token: parsed.data.inviteToken,
-        displayName: parsed.data.displayName,
-        platform: parsed.data.platform,
+        userId: me.user.id,
       });
-      if (!res.ok)
+      if (!res.ok) {
+        if (res.code === "VALIDATION_ERROR") {
+          return err(
+            requestId,
+            res.code,
+            "Ya pertenece a un espacio activo",
+            400,
+          );
+        }
         return domainErr(
           requestId,
           res.code,
           "No se pudo consumir la invitación",
         );
+      }
+      return Response.json(
+        { pairSpaceId: res.value.pairSpaceId },
+        { status: 201 },
+      );
+    }
+
+    // POST /v1/login-attempts — abre una espera de entrada (sin sesión).
+    // El PC la crea y muestra su QR. No autoriza nada por sí sola.
+    if (req.method === "POST" && url.pathname === "/v1/login-attempts") {
+      const limited = checkRate(
+        deps,
+        requestId,
+        rateKeyIp(req, "login-attempt-create"),
+        RATE_LIMITS.loginAttemptCreate,
+      );
+      if (limited) return limited;
+      const parsed = createLoginAttemptRequest.safeParse(
+        (await readJson(req)) ?? {},
+      );
+      if (!parsed.success) {
+        return err(requestId, "VALIDATION_ERROR", "Petición inválida", 400);
+      }
+      const res = await createLoginAttempt(
+        deps.store,
+        deps.crypto,
+        deps.clock,
+        {
+          platform: parsed.data.platform,
+          ttlSeconds: parsed.data.ttlSeconds,
+        },
+      );
+      if (!res.ok)
+        return domainErr(
+          requestId,
+          res.code,
+          "No se pudo abrir la espera de entrada",
+        );
+      return Response.json(
+        {
+          attemptId: res.value.attempt.id,
+          loginCode: res.value.code,
+          expiresAt: res.value.attempt.expiresAt,
+        },
+        { status: 201 },
+      );
+    }
+
+    // POST /v1/login-attempts/approve — el celular con sesión aprueba (FR-10).
+    // Escanear = aprobar: vincula el intento a mi usuario.
+    if (
+      req.method === "POST" &&
+      url.pathname === "/v1/login-attempts/approve"
+    ) {
+      if (!me) return UNAUTH();
+      const limited = checkRate(
+        deps,
+        requestId,
+        rateKeyInstallation(me.installation.id, "login-attempt-approve"),
+        RATE_LIMITS.loginAttemptApprove,
+      );
+      if (limited) return limited;
+      const parsed = approveLoginAttemptRequest.safeParse(await readJson(req));
+      if (!parsed.success) {
+        return err(requestId, "VALIDATION_ERROR", "Petición inválida", 400);
+      }
+      const res = await approveLoginAttempt(
+        deps.store,
+        deps.crypto,
+        deps.clock,
+        {
+          attemptId: parsed.data.attemptId,
+          code: parsed.data.loginCode,
+          approverUserId: me.user.id,
+          approverInstallationId: me.installation.id,
+        },
+      );
+      if (!res.ok)
+        return domainErr(requestId, res.code, "No se pudo aprobar la entrada");
+      return Response.json({ platform: res.value.platform });
+    }
+
+    // POST /v1/login-attempts/poll — el PC sondea hasta entrar (misma
+    // identidad y misma sala, sin duplicar nada).
+    if (
+      req.method === "POST" &&
+      url.pathname === "/v1/login-attempts/poll"
+    ) {
+      const limited = checkRate(
+        deps,
+        requestId,
+        rateKeyIp(req, "login-attempt-poll"),
+        RATE_LIMITS.loginAttemptPoll,
+      );
+      if (limited) return limited;
+      const parsed = pollLoginAttemptRequest.safeParse(await readJson(req));
+      if (!parsed.success) {
+        return err(requestId, "VALIDATION_ERROR", "Petición inválida", 400);
+      }
+      const res = await pollLoginAttempt(deps.store, deps.crypto, deps.clock, {
+        attemptId: parsed.data.attemptId,
+        code: parsed.data.loginCode,
+      });
+      if (!res.ok)
+        return domainErr(requestId, res.code, "Espera de entrada inválida");
+      if (res.value.status === "pending") {
+        return Response.json({ status: "pending" as const });
+      }
       const now = deps.clock.nowIso();
       const session = await issueSession(
         deps,
@@ -418,6 +542,7 @@ export function createApp(deps: AppDeps): (req: Request) => Promise<Response> {
       );
       return Response.json(
         {
+          status: "approved" as const,
           pairSpaceId: res.value.pairSpaceId,
           userId: res.value.user.id,
           installationId: res.value.installation.id,

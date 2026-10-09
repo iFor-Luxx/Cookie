@@ -11,6 +11,9 @@ export interface RateLimit {
 export const RATE_LIMITS = {
   inviteCreate: { limit: 10, windowMs: 60_000 },
   inviteConsume: { limit: 20, windowMs: 60_000 },
+  loginAttemptCreate: { limit: 20, windowMs: 60_000 },
+  loginAttemptApprove: { limit: 20, windowMs: 60_000 },
+  loginAttemptPoll: { limit: 60, windowMs: 60_000 },
   recovery: { limit: 10, windowMs: 60_000 },
   publish: { limit: 60, windowMs: 60_000 },
   uploadIntent: { limit: 120, windowMs: 60_000 },
@@ -126,6 +129,9 @@ export function routeTemplate(method: string, pathname: string): string {
     ) ??
     t(/^\/v1\/pair-spaces\/[^/]+\/export$/, "/v1/pair-spaces/:id/export") ??
     t(/^\/v1\/invites\/consume$/, "/v1/invites/consume") ??
+    t(/^\/v1\/login-attempts$/, "/v1/login-attempts") ??
+    t(/^\/v1\/login-attempts\/approve$/, "/v1/login-attempts/approve") ??
+    t(/^\/v1\/login-attempts\/poll$/, "/v1/login-attempts/poll") ??
     t(/^\/v1\/recovery\/complete$/, "/v1/recovery/complete") ??
     t(/^\/v1\/uploads\/intents$/, "/v1/uploads/intents") ??
     t(/^\/v1\/uploads\/[^/]+$/, "/v1/uploads/:id") ??

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type {
   Installation,
   Invite,
+  LoginAttempt,
   Membership,
   PairSpace,
   RecoveryChallenge,
@@ -9,10 +10,13 @@ import type {
   User,
 } from "./entities";
 import {
+  approveLoginAttempt,
   completeRecovery,
   consumeInvite,
   createInvite,
+  createLoginAttempt,
   createPairSpace,
+  pollLoginAttempt,
   registerInstallation,
   revokeInstallation,
   startRecovery,
@@ -53,6 +57,7 @@ function memoryStore(): PairingStore {
   const invitesByHash = new Map<string, Invite>();
   const recoveries = new Map<string, RecoveryCredential[]>();
   const challenges = new Map<string, RecoveryChallenge>();
+  const attempts = new Map<string, LoginAttempt>();
   const key = (s: string, u: string) => `${s}:${u}`;
   return {
     insertUser: async (u) => void users.set(u.id, u),
@@ -107,6 +112,9 @@ function memoryStore(): PairingStore {
     insertRecoveryChallenge: async (c) => void challenges.set(c.id, c),
     findRecoveryChallenge: async (id) => challenges.get(id) ?? null,
     updateRecoveryChallenge: async (c) => void challenges.set(c.id, c),
+    insertLoginAttempt: async (a) => void attempts.set(a.id, a),
+    findLoginAttempt: async (id) => attempts.get(id) ?? null,
+    updateLoginAttempt: async (a) => void attempts.set(a.id, a),
     countActiveInstallations: async (spaceId) => {
       const counts = new Map<string, number>();
       for (const m of memberships.values()) {
@@ -167,18 +175,30 @@ describe("pairing H2", () => {
     expect(inv.ok).toBe(true);
     if (!inv.ok) return;
 
+    const bReg = await registerInstallation(store, crypto, clock, {
+      platform: "android",
+      displayName: "B",
+    });
+    expect(bReg.ok).toBe(true);
+    if (!bReg.ok) return;
+
     const b = await consumeInvite(store, crypto, clock, {
       token: inv.value.inviteToken,
-      displayName: "B",
-      platform: "android",
+      userId: bReg.value.user.id,
     });
     expect(b.ok).toBe(true);
+    if (!b.ok) return;
+    expect(b.value.pairSpaceId).toBe(space.value.space.id);
 
-    // Reusar el mismo token falla.
+    // Reusar el mismo token falla (otro usuario ya registrado).
+    const cReg = await registerInstallation(store, crypto, clock, {
+      platform: "web",
+      displayName: "C",
+    });
+    if (!cReg.ok) return;
     const reuse = await consumeInvite(store, crypto, clock, {
       token: inv.value.inviteToken,
-      displayName: "C",
-      platform: "web",
+      userId: cReg.value.user.id,
     });
     expect(reuse).toEqual({ ok: false, code: "INVITE_ALREADY_USED" });
 
@@ -192,10 +212,71 @@ describe("pairing H2", () => {
     if (!inv2.ok) return;
     const c = await consumeInvite(store, crypto, clock, {
       token: inv2.value.inviteToken,
-      displayName: "C",
-      platform: "web",
+      userId: cReg.value.user.id,
     });
     expect(c).toEqual({ ok: false, code: "PAIRSPACE_FULL" });
+  });
+
+  it("consume idempotente si ya es miembro; rechaza segundo espacio", async () => {
+    const store = memoryStore();
+    const crypto = stubCrypto();
+    const clock = stubClock();
+    const a = await registerInstallation(store, crypto, clock, {
+      platform: "web",
+      displayName: "A",
+    });
+    if (!a.ok) return;
+    const space = await createPairSpace(store, crypto, clock, {
+      userId: a.value.user.id,
+    });
+    if (!space.ok) return;
+    const inv = await createInvite(store, crypto, clock, {
+      spaceId: space.value.space.id,
+      actorUserId: a.value.user.id,
+      ttlSeconds: 3600,
+    });
+    if (!inv.ok) return;
+    // El creador (ya miembro) consume su propia invitación: no quema el token.
+    const self = await consumeInvite(store, crypto, clock, {
+      token: inv.value.inviteToken,
+      userId: a.value.user.id,
+    });
+    expect(self).toEqual({
+      ok: true,
+      value: { pairSpaceId: space.value.space.id },
+    });
+    // El token sigue vivo para el segundo miembro.
+    const bReg = await registerInstallation(store, crypto, clock, {
+      platform: "web",
+      displayName: "B",
+    });
+    if (!bReg.ok) return;
+    const b = await consumeInvite(store, crypto, clock, {
+      token: inv.value.inviteToken,
+      userId: bReg.value.user.id,
+    });
+    expect(b.ok).toBe(true);
+    // B ya está en un espacio: no puede unirse a otro.
+    const cReg = await registerInstallation(store, crypto, clock, {
+      platform: "web",
+      displayName: "C",
+    });
+    if (!cReg.ok) return;
+    const space2 = await createPairSpace(store, crypto, clock, {
+      userId: cReg.value.user.id,
+    });
+    if (!space2.ok) return;
+    const inv2 = await createInvite(store, crypto, clock, {
+      spaceId: space2.value.space.id,
+      actorUserId: cReg.value.user.id,
+      ttlSeconds: 3600,
+    });
+    if (!inv2.ok) return;
+    const second = await consumeInvite(store, crypto, clock, {
+      token: inv2.value.inviteToken,
+      userId: bReg.value.user.id,
+    });
+    expect(second).toEqual({ ok: false, code: "VALIDATION_ERROR" });
   });
 
   it("invite expirada se rechaza", async () => {
@@ -218,10 +299,14 @@ describe("pairing H2", () => {
     });
     if (!inv.ok) return;
     clock.tick(61_000);
+    const bReg = await registerInstallation(store, crypto, clock, {
+      platform: "web",
+      displayName: "B",
+    });
+    if (!bReg.ok) return;
     const res = await consumeInvite(store, crypto, clock, {
       token: inv.value.inviteToken,
-      displayName: "B",
-      platform: "web",
+      userId: bReg.value.user.id,
     });
     expect(res).toEqual({ ok: false, code: "INVITE_EXPIRED" });
   });
@@ -290,16 +375,20 @@ describe("pairing H2", () => {
       ttlSeconds: 3600,
     });
     if (!inv.ok) return;
+    const bReg = await registerInstallation(store, crypto, clock, {
+      platform: "android",
+      displayName: "B",
+    });
+    if (!bReg.ok) return;
     const b = await consumeInvite(store, crypto, clock, {
       token: inv.value.inviteToken,
-      displayName: "B",
-      platform: "android",
+      userId: bReg.value.user.id,
     });
     if (!b.ok) return;
     // B pierde su dispositivo: revoca su instalación.
     await revokeInstallation(store, clock, {
-      actorUserId: b.value.user.id,
-      installationId: b.value.installation.id,
+      actorUserId: bReg.value.user.id,
+      installationId: bReg.value.installation.id,
       confirm: true,
     });
     const ch = await startRecovery(store, crypto, clock, {
@@ -314,6 +403,126 @@ describe("pairing H2", () => {
       platform: "android",
     });
     expect(done.ok).toBe(true);
-    if (done.ok) expect(done.value.user.id).toBe(b.value.user.id);
+    if (done.ok) expect(done.value.user.id).toBe(bReg.value.user.id);
+  });
+
+  it("login por QR: el PC muestra, el celular aprueba, misma sala", async () => {
+    const store = memoryStore();
+    const crypto = stubCrypto();
+    const clock = stubClock();
+    const a = await registerInstallation(store, crypto, clock, {
+      platform: "android",
+      displayName: "A",
+    });
+    if (!a.ok) return;
+    const space = await createPairSpace(store, crypto, clock, {
+      userId: a.value.user.id,
+    });
+    if (!space.ok) return;
+    // El PC (sin sesión) abre la espera y muestra el QR.
+    const created = await createLoginAttempt(store, crypto, clock, {
+      platform: "web",
+      ttlSeconds: 300,
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const attemptId = created.value.attempt.id;
+    const code = created.value.code;
+    // Antes de aprobar: pendiente.
+    const pending = await pollLoginAttempt(store, crypto, clock, {
+      attemptId,
+      code,
+    });
+    expect(pending).toEqual({ ok: true, value: { status: "pending" } });
+    // El celular (con sesión) escanea y aprueba.
+    const approved = await approveLoginAttempt(store, crypto, clock, {
+      attemptId,
+      code,
+      approverUserId: a.value.user.id,
+      approverInstallationId: a.value.installation.id,
+    });
+    expect(approved).toEqual({ ok: true, value: { platform: "web" } });
+    // El PC sondea y entra: misma identidad, instalación nueva, misma sala.
+    const joined = await pollLoginAttempt(store, crypto, clock, {
+      attemptId,
+      code,
+    });
+    expect(joined.ok).toBe(true);
+    if (!joined.ok || joined.value.status !== "approved") return;
+    expect(joined.value.user.id).toBe(a.value.user.id);
+    expect(joined.value.installation.id).not.toBe(a.value.installation.id);
+    expect(joined.value.pairSpaceId).toBe(space.value.space.id);
+    expect((await store.activeMemberships(space.value.space.id)).length).toBe(
+      1,
+    );
+    // Un solo uso: ni aprobar ni sondear de nuevo.
+    const reuseApprove = await approveLoginAttempt(store, crypto, clock, {
+      attemptId,
+      code,
+      approverUserId: a.value.user.id,
+      approverInstallationId: a.value.installation.id,
+    });
+    expect(reuseApprove).toEqual({ ok: false, code: "LOGIN_ALREADY_USED" });
+    const reusePoll = await pollLoginAttempt(store, crypto, clock, {
+      attemptId,
+      code,
+    });
+    expect(reusePoll).toEqual({ ok: false, code: "LOGIN_ALREADY_USED" });
+  });
+
+  it("login por QR: código erróneo, expirado e instalación revocada", async () => {
+    const store = memoryStore();
+    const crypto = stubCrypto();
+    const clock = stubClock();
+    const a = await registerInstallation(store, crypto, clock, {
+      platform: "android",
+      displayName: "A",
+    });
+    if (!a.ok) return;
+    const created = await createLoginAttempt(store, crypto, clock, {
+      platform: "web",
+      ttlSeconds: 60,
+    });
+    if (!created.ok) return;
+    const attemptId = created.value.attempt.id;
+    // Código erróneo: indistinguible.
+    const wrong = await approveLoginAttempt(store, crypto, clock, {
+      attemptId,
+      code: "codigo-erroneo",
+      approverUserId: a.value.user.id,
+      approverInstallationId: a.value.installation.id,
+    });
+    expect(wrong).toEqual({ ok: false, code: "NOT_FOUND" });
+    clock.tick(61_000);
+    const expiredApprove = await approveLoginAttempt(store, crypto, clock, {
+      attemptId,
+      code: created.value.code,
+      approverUserId: a.value.user.id,
+      approverInstallationId: a.value.installation.id,
+    });
+    expect(expiredApprove).toEqual({ ok: false, code: "LOGIN_EXPIRED" });
+    const expiredPoll = await pollLoginAttempt(store, crypto, clock, {
+      attemptId,
+      code: created.value.code,
+    });
+    expect(expiredPoll).toEqual({ ok: false, code: "LOGIN_EXPIRED" });
+    // Instalación revocada no puede aprobar entradas.
+    const fresh = await createLoginAttempt(store, crypto, clock, {
+      platform: "web",
+      ttlSeconds: 300,
+    });
+    if (!fresh.ok) return;
+    await revokeInstallation(store, clock, {
+      actorUserId: a.value.user.id,
+      installationId: a.value.installation.id,
+      confirm: true,
+    });
+    const revoked = await approveLoginAttempt(store, crypto, clock, {
+      attemptId: fresh.value.attempt.id,
+      code: fresh.value.code,
+      approverUserId: a.value.user.id,
+      approverInstallationId: a.value.installation.id,
+    });
+    expect(revoked).toEqual({ ok: false, code: "FORBIDDEN" });
   });
 });

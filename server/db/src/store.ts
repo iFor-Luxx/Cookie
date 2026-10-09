@@ -4,6 +4,7 @@ import type {
   Installation,
   Invite,
   LibraryStore,
+  LoginAttempt,
   Membership,
   PairEvent,
   PairingStore,
@@ -76,6 +77,18 @@ type ChallengeRow = {
   consumed_at: string | null;
 };
 
+type LoginAttemptRow = {
+  id: string;
+  code_hash: string;
+  platform: string;
+  created_at: string;
+  expires_at: string;
+  approved_at: string | null;
+  approved_user_id: string | null;
+  approved_by_installation_id: string | null;
+  consumed_at: string | null;
+};
+
 const toUser = (r: UserRow): User => ({
   id: r.id,
   displayName: r.display_name,
@@ -126,6 +139,18 @@ const toRecovery = (r: RecoveryRow): RecoveryCredential => ({
   createdAt: r.created_at,
   usedAt: r.used_at,
   revokedAt: r.revoked_at,
+});
+
+const toLoginAttempt = (r: LoginAttemptRow): LoginAttempt => ({
+  id: r.id,
+  codeHash: r.code_hash,
+  platform: r.platform as LoginAttempt["platform"],
+  createdAt: r.created_at,
+  expiresAt: r.expires_at,
+  approvedAt: r.approved_at,
+  approvedUserId: r.approved_user_id,
+  approvedByInstallationId: r.approved_by_installation_id,
+  consumedAt: r.consumed_at,
 });
 
 const toChallenge = (r: ChallengeRow): RecoveryChallenge => ({
@@ -283,6 +308,37 @@ export function sqlPairingStore(db: Db): PairingStore & SessionStore {
         nowIso,
         spaceId,
         nowIso,
+      );
+    },
+    insertLoginAttempt: async (a) => {
+      await db.run(
+        "INSERT INTO login_attempts(id, code_hash, platform, created_at, expires_at, approved_at, approved_user_id, approved_by_installation_id, consumed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        a.id,
+        a.codeHash,
+        a.platform,
+        a.createdAt,
+        a.expiresAt,
+        a.approvedAt,
+        a.approvedUserId,
+        a.approvedByInstallationId,
+        a.consumedAt,
+      );
+    },
+    findLoginAttempt: async (id) => {
+      const r = await db.get<LoginAttemptRow>(
+        "SELECT * FROM login_attempts WHERE id = ?",
+        id,
+      );
+      return r ? toLoginAttempt(r) : null;
+    },
+    updateLoginAttempt: async (a) => {
+      await db.run(
+        "UPDATE login_attempts SET approved_at = ?, approved_user_id = ?, approved_by_installation_id = ?, consumed_at = ? WHERE id = ?",
+        a.approvedAt,
+        a.approvedUserId,
+        a.approvedByInstallationId,
+        a.consumedAt,
+        a.id,
       );
     },
     insertRecoveryCredential: async (r) => {

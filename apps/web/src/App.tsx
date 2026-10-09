@@ -10,6 +10,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { CanvasBoard, type SaveState } from "@/components/canvas/CanvasBoard";
 import { Toolbar } from "@/components/canvas/Toolbar";
+import { LoginQrDialog } from "@/components/studio/LoginQrDialog";
 import { Onboarding } from "@/components/studio/Onboarding";
 import { SpaceSetup } from "@/components/studio/SpaceSetup";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +19,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/lib/api";
 import { installDeepLinkListener } from "@/lib/deep-link";
+import { saveLastSpaceId } from "@/lib/last-space";
 import {
   installSessionMirror,
   setNativeSpace,
@@ -93,6 +95,11 @@ export function App(): React.JSX.Element {
       .catch(() => setScreen("onboarding"));
   }, []);
 
+  // Último espacio conocido (rellena la recuperación, nunca memorizar UUID).
+  useEffect(() => {
+    if (spaceId) saveLastSpaceId(spaceId);
+  }, [spaceId]);
+
   // Sync + realtime vivos solo en studio.
   useEffect(() => {
     if (screen !== "studio" || !spaceId) return;
@@ -165,7 +172,18 @@ export function App(): React.JSX.Element {
     );
   }
   if (screen === "onboarding") {
-    return <Onboarding onDone={() => setScreen("setup")} />;
+    return (
+      <Onboarding
+        onDone={(id) => {
+          if (id) {
+            setSpaceId(id);
+            setScreen("studio");
+          } else {
+            setScreen("setup");
+          }
+        }}
+      />
+    );
   }
   if (screen === "setup" || !spaceId) {
     return (
@@ -208,6 +226,7 @@ export function App(): React.JSX.Element {
                 {failed})
               </Button>
             )}
+            <LoginQrDialog />
             <Button
               variant="ghost"
               size="icon"

@@ -1,4 +1,4 @@
-import { Check, Copy } from "lucide-react";
+import { Check, Copy, ScanLine } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -12,6 +12,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { ApiError, api } from "@/lib/api";
+import { inviteQrPayload, parseQrPayload } from "@/lib/invite-qr";
+import { InviteQr } from "./InviteQr";
+import { QrScanner } from "./QrScanner";
 
 export function SpaceSetup({
   onDone,
@@ -25,7 +28,7 @@ export function SpaceSetup({
   const [invite, setInvite] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [joinToken, setJoinToken] = useState("");
-  const [joinName, setJoinName] = useState("");
+  const [showScanner, setShowScanner] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -35,6 +38,13 @@ export function SpaceSetup({
     try {
       const res = await api.createSpace();
       setCreated(res);
+      // QR inmediato: encadenar la invitación para mostrarla sin otro clic.
+      try {
+        const inv = await api.createInvite(res.pairSpaceId);
+        setInvite(inv.inviteToken);
+      } catch {
+        // Se genera manual con el botón de abajo.
+      }
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "No se pudo crear");
     } finally {
@@ -55,11 +65,14 @@ export function SpaceSetup({
     }
   };
 
-  const join = async (): Promise<void> => {
+  const join = async (token: string): Promise<void> => {
+    const t = token.trim();
+    if (!t) return;
     setBusy(true);
     setError(null);
     try {
-      const res = await api.consumeInvite(joinToken.trim(), joinName.trim());
+      // La identidad ya viene del onboarding: solo se vincula al espacio.
+      const res = await api.consumeInvite(t);
       onDone(res.pairSpaceId);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Invitación inválida");
@@ -89,13 +102,7 @@ export function SpaceSetup({
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             <div>
-              <Label>ID del espacio</Label>
-              <code className="block rounded-md bg-muted p-2 font-mono text-xs break-all">
-                {created.pairSpaceId}
-              </code>
-            </div>
-            <div>
-              <Label>Secreto de recuperación</Label>
+              <Label>Secreto de recuperación (se muestra una sola vez)</Label>
               <code className="block rounded-md bg-muted p-2 font-mono text-xs break-all">
                 {created.recoverySecret}
               </code>
@@ -106,6 +113,13 @@ export function SpaceSetup({
               </Button>
             ) : (
               <>
+                <div className="flex flex-col items-center gap-2">
+                  <Label>Escanea este QR desde el otro dispositivo</Label>
+                  <InviteQr
+                    payload={inviteQrPayload(invite)}
+                    label="QR de invitación"
+                  />
+                </div>
                 <div>
                   <Label>Token de invitación (un solo uso)</Label>
                   <code className="block rounded-md bg-muted p-2 font-mono text-xs break-all">
@@ -146,31 +160,51 @@ export function SpaceSetup({
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <Button onClick={create} disabled={busy}>
-            Crear espacio para dos
+            Crear espacio y mostrar QR
           </Button>
           {error && <p className="text-sm text-destructive">{error}</p>}
           <Separator />
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="token">Token de invitación</Label>
-            <Input
-              id="token"
-              value={joinToken}
-              onChange={(e) => setJoinToken(e.target.value)}
+          {showScanner ? (
+            <QrScanner
+              onScan={(raw) => {
+                const parsed = parseQrPayload(raw);
+                setShowScanner(false);
+                if (!parsed) {
+                  setError("QR no reconocido");
+                  return;
+                }
+                if (parsed.kind !== "invite") {
+                  setError("Ese QR es de entrada, úsalo desde el inicio");
+                  return;
+                }
+                setJoinToken(parsed.token);
+                void join(parsed.token);
+              }}
+              onClose={() => setShowScanner(false)}
             />
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="joinName">Tu nombre visible</Label>
-            <Input
-              id="joinName"
-              value={joinName}
-              onChange={(e) => setJoinName(e.target.value)}
-              maxLength={32}
-            />
-          </div>
+          ) : (
+            <>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="token">Token de invitación</Label>
+                <Input
+                  id="token"
+                  value={joinToken}
+                  onChange={(e) => setJoinToken(e.target.value)}
+                />
+              </div>
+              <Button
+                variant="secondary"
+                onClick={() => setShowScanner(true)}
+                disabled={busy}
+              >
+                <ScanLine className="size-4" aria-hidden /> Escanear QR
+              </Button>
+            </>
+          )}
           <Button
-            variant="secondary"
-            onClick={join}
-            disabled={busy || !joinToken || !joinName.trim()}
+            variant={showScanner ? "secondary" : "default"}
+            onClick={() => void join(joinToken)}
+            disabled={busy || !joinToken.trim()}
           >
             Unirse
           </Button>

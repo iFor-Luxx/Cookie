@@ -72,6 +72,8 @@ const domainStatus: Record<string, { status: number; code: ErrorCode }> = {
   PAIRSPACE_FULL: { status: 409, code: "PAIRSPACE_FULL" },
   INVITE_EXPIRED: { status: 410, code: "INVITE_EXPIRED" },
   INVITE_ALREADY_USED: { status: 409, code: "INVITE_ALREADY_USED" },
+  LOGIN_EXPIRED: { status: 410, code: "LOGIN_EXPIRED" },
+  LOGIN_ALREADY_USED: { status: 409, code: "LOGIN_ALREADY_USED" },
   BLOB_NOT_FOUND: { status: 404, code: "BLOB_NOT_FOUND" },
   UPLOAD_EXPIRED: { status: 410, code: "UPLOAD_EXPIRED" },
   CURSOR_EXPIRED: { status: 410, code: "CURSOR_EXPIRED" },

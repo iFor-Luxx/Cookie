@@ -1,7 +1,7 @@
 ext {
     // Android 10+ (API 29). Subir solo con decisión registrada.
     minSdkVersion = 29
-    compileSdkVersion = 35
+    compileSdkVersion = 36 // Excepción 2026-10-09: AndroidX core 1.17.0/activity 1.11.0 exigen API 36+. target se queda en 35.
     targetSdkVersion = 35
     androidxActivityVersion = '1.11.0'
     androidxAppCompatVersion = '1.7.1'

@@ -90,22 +90,78 @@ describe("API pairing H2", () => {
     expect(inv.status).toBe(201);
     const token = inv.json.inviteToken as string;
 
+    const bReg = await call(app, "POST", "/v1/installations", {
+      body: { platform: "android", displayName: "B" },
+    });
+    expect(bReg.status).toBe(201);
     const b = await call(app, "POST", "/v1/invites/consume", {
-      body: { inviteToken: token, displayName: "B", platform: "android" },
+      token: bReg.json.accessToken as string,
+      body: { inviteToken: token },
     });
     expect(b.status).toBe(201);
     expect(b.json.pairSpaceId).toBe(spaceId);
 
     const meB = await call(app, "GET", "/v1/me", {
-      token: b.json.accessToken as string,
+      token: bReg.json.accessToken as string,
     });
     expect(meB.json.pairSpaceId).toBe(spaceId);
     expect(meB.json.displayName).toBe("B");
 
     const reuse = await call(app, "POST", "/v1/invites/consume", {
-      body: { inviteToken: token, displayName: "C" },
+      token: accessA,
+      body: { inviteToken: token },
     });
     expect(reuse.status).toBe(409);
+  }, 30_000);
+
+  it("login por QR: el PC muestra, el celular aprueba, misma sala", async () => {
+    const app = testApp().app;
+    const a = await call(app, "POST", "/v1/installations", {
+      body: { platform: "android", displayName: "A" },
+    });
+    const accessA = a.json.accessToken as string;
+    const space = await call(app, "POST", "/v1/pair-spaces", {
+      token: accessA,
+    });
+    const spaceId = space.json.pairSpaceId as string;
+    // El PC (sin sesión) abre la espera.
+    const attempt = await call(app, "POST", "/v1/login-attempts", {
+      body: { platform: "web" },
+    });
+    expect(attempt.status).toBe(201);
+    const attemptId = attempt.json.attemptId as string;
+    const code = attempt.json.loginCode as string;
+    // Antes de aprobar: pendiente.
+    const pending = await call(app, "POST", "/v1/login-attempts/poll", {
+      body: { attemptId, loginCode: code },
+    });
+    expect(pending.status).toBe(200);
+    expect(pending.json.status).toBe("pending");
+    // Aprobar exige sesión.
+    const anonApprove = await call(app, "POST", "/v1/login-attempts/approve", {
+      body: { attemptId, loginCode: code },
+    });
+    expect(anonApprove.status).toBe(401);
+    // El celular aprueba con su sesión.
+    const approve = await call(app, "POST", "/v1/login-attempts/approve", {
+      token: accessA,
+      body: { attemptId, loginCode: code },
+    });
+    expect(approve.status).toBe(200);
+    // El PC sondea y entra: misma identidad, instalación nueva, misma sala.
+    const join = await call(app, "POST", "/v1/login-attempts/poll", {
+      body: { attemptId, loginCode: code },
+    });
+    expect(join.status).toBe(201);
+    expect(join.json.status).toBe("approved");
+    expect(join.json.userId).toBe(a.json.userId);
+    expect(join.json.installationId).not.toBe(a.json.installationId);
+    expect(join.json.pairSpaceId).toBe(spaceId);
+    // Un solo uso.
+    const reusePoll = await call(app, "POST", "/v1/login-attempts/poll", {
+      body: { attemptId, loginCode: code },
+    });
+    expect(reusePoll.status).toBe(409);
   }, 30_000);
 
   it("refresh rota y el reuse revoca la familia", async () => {
@@ -193,20 +249,23 @@ describe("API pairing H2", () => {
       token: a.json.accessToken as string,
       body: {},
     });
+    const bReg = await call(app, "POST", "/v1/installations", {
+      body: { platform: "android", displayName: "B" },
+    });
     const b = await call(app, "POST", "/v1/invites/consume", {
+      token: bReg.json.accessToken as string,
       body: {
         inviteToken: inv.json.inviteToken,
-        displayName: "B",
-        platform: "android",
       },
     });
+    expect(b.status).toBe(201);
     // B pierde el dispositivo.
     await call(
       app,
       "POST",
-      `/v1/installations/${b.json.installationId}/revoke`,
+      `/v1/installations/${bReg.json.installationId}/revoke`,
       {
-        token: b.json.accessToken as string,
+        token: bReg.json.accessToken as string,
         body: { confirm: true },
       },
     );
@@ -247,7 +306,7 @@ describe("API pairing H2", () => {
       },
     });
     expect(done.status).toBe(201);
-    expect(done.json.userId).toBe(b.json.userId);
+    expect(done.json.userId).toBe(bReg.json.userId);
   }, 30_000);
 
   it("health y versión de protocolo", async () => {
@@ -304,17 +363,20 @@ async function registerPair(): Promise<Paired> {
     token: a.json.accessToken as string,
     body: {},
   });
+  const bReg = await call(app, "POST", "/v1/installations", {
+    body: { platform: "android", displayName: "B" },
+  });
   const b = await call(app, "POST", "/v1/invites/consume", {
+    token: bReg.json.accessToken as string,
     body: {
       inviteToken: inv.json.inviteToken,
-      displayName: "B",
-      platform: "android",
     },
   });
+  expect(b.status).toBe(201);
   return {
     app,
     accessA: a.json.accessToken as string,
-    accessB: b.json.accessToken as string,
+    accessB: bReg.json.accessToken as string,
     spaceId,
   };
 }
@@ -681,17 +743,20 @@ describe("API realtime H5", () => {
       token: a.json.accessToken as string,
       body: {},
     });
+    const bReg = await call(app, "POST", "/v1/installations", {
+      body: { platform: "android", displayName: "B" },
+    });
     const b = await call(app, "POST", "/v1/invites/consume", {
+      token: bReg.json.accessToken as string,
       body: {
         inviteToken: inv.json.inviteToken,
-        displayName: "B",
-        platform: "android",
       },
     });
+    expect(b.status).toBe(201);
     const paired = {
       app,
       accessA: a.json.accessToken as string,
-      accessB: b.json.accessToken as string,
+      accessB: bReg.json.accessToken as string,
       spaceId,
     };
     const before = notified.length;
@@ -738,15 +803,31 @@ describe("API push token H6", () => {
 });
 
 describe("API hardening H7", () => {
-  it("rate limit en consume: ráfaga → 429 con retry-after", async () => {
+  it("rate limit en consume: sin auth 401; ráfaga autenticada → 429", async () => {
     const { app } = testApp();
+    const anon = await app(
+      new Request("https://test/v1/invites/consume", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ inviteToken: "x" }),
+      }),
+    );
+    expect(anon.status).toBe(401);
+    const a = await call(app, "POST", "/v1/installations", {
+      body: { platform: "web", displayName: "A" },
+    });
+    const token = a.json.accessToken as string;
     let limited = 0;
     for (let i = 0; i < 25; i++) {
       const res = await app(
         new Request("https://test/v1/invites/consume", {
           method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ inviteToken: "x", displayName: "Y" }),
+          headers: {
+            authorization: `Bearer ${token}`,
+            "content-type": "application/json",
+            "x-protocol-version": "1",
+          },
+          body: JSON.stringify({ inviteToken: "x" }),
         }),
       );
       if (res.status === 429) {

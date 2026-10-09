@@ -1,4 +1,4 @@
-import { Trash2 } from "lucide-react";
+import { Copy, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -24,6 +24,12 @@ export function History({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<DrawingMeta | null>(null);
+  const [copiedSpace, setCopiedSpace] = useState(false);
+
+  const copySpaceId = async (): Promise<void> => {
+    await navigator.clipboard.writeText(spaceId).catch(() => undefined);
+    setCopiedSpace(true);
+  };
 
   const loadPage = useCallback(
     async (c?: string) => {
@@ -82,6 +88,18 @@ export function History({
   return (
     <div className="flex flex-col gap-4">
       {error && <p className="text-sm text-destructive">{error}</p>}
+      <div className="flex items-center justify-between gap-2">
+        <p
+          className="truncate font-mono text-xs text-muted-foreground"
+          title={spaceId}
+        >
+          Espacio {spaceId.slice(0, 8)}…
+        </p>
+        <Button variant="ghost" size="sm" onClick={() => void copySpaceId()}>
+          <Copy className="size-3" aria-hidden />
+          {copiedSpace ? "Copiado" : "ID"}
+        </Button>
+      </div>
       {items.length === 0 && !loading && (
         <p className="text-center text-sm text-muted-foreground">
           Aún no hay dibujos publicados. Dibuja algo y pulsa Publicar.

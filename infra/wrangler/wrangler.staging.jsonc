@@ -3,8 +3,8 @@
   "compatibility_date": "2026-10-01",
   "main": "../../server/api/src/worker.ts",
   "vars": {
-    "ALLOWED_ORIGINS": "capacitor://localhost,https://localhost",
-    "API_BASE": "https://cookie-staging.jhojantomairo2.workers.dev"
+    "ALLOWED_ORIGINS": "http://localhost:5173,http://localhost:5175,http://127.0.0.1:5175,capacitor://localhost,https://localhost",
+    "API_BASE": "https://cookie-staging.ifor-dev.workers.dev"
   },
   // Secretos SOLO vía `wrangler secret put --env staging`:
   // ACCESS_SECRET (>=32 bytes), INTERNAL_SECRET,

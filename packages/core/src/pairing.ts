@@ -2,6 +2,8 @@
 import {
   type Installation,
   type Invite,
+  LOGIN_ATTEMPT_TTL_SECONDS,
+  type LoginAttempt,
   MAX_ACTIVE_MEMBERS,
   type Membership,
   type PairSpace,
@@ -161,11 +163,8 @@ export async function consumeInvite(
   store: PairingStore,
   crypto: CryptoPort,
   clock: ClockPort,
-  input: { token: string; displayName: string; platform: Platform },
-): Promise<Result<RegisteredInstallation & { pairSpaceId: string }>> {
-  if (!validDisplayName(input.displayName)) {
-    return { ok: false, code: "VALIDATION_ERROR" };
-  }
+  input: { token: string; userId: string },
+): Promise<Result<{ pairSpaceId: string }>> {
   const invite = await findInviteByToken(store, crypto, input.token);
   if (!invite) return { ok: false, code: "NOT_FOUND" };
   if (invite.consumedAt !== null)
@@ -175,27 +174,20 @@ export async function consumeInvite(
   const space = await store.findPairSpace(invite.pairSpaceId);
   if (!space || space.status !== "active")
     return { ok: false, code: "NOT_FOUND" };
+  const user = await store.findUser(input.userId);
+  if (!user) return { ok: false, code: "NOT_FOUND" };
+  // Idempotente: si ya es miembro, devolver sin quemar el token.
+  const existing = await store.findMembership(space.id, user.id);
+  if (existing && existing.leftAt === null) {
+    return { ok: true, value: { pairSpaceId: space.id } };
+  }
+  // Modelo de un espacio por usuario (igual que createPairSpace).
+  const spaces = await store.userSpaces(user.id);
+  if (spaces.length > 0) return { ok: false, code: "VALIDATION_ERROR" };
   const members = await store.activeMemberships(invite.pairSpaceId);
   if (members.length >= MAX_ACTIVE_MEMBERS) {
     return { ok: false, code: "PAIRSPACE_FULL" };
   }
-  const user: User = {
-    id: crypto.newId(),
-    displayName: input.displayName,
-    avatarKey: null,
-    createdAt: now,
-    updatedAt: now,
-  };
-  const secret = crypto.newSecret();
-  const installation: Installation = {
-    id: crypto.newId(),
-    userId: user.id,
-    platform: input.platform,
-    credentialHash: await crypto.hashSecret(secret),
-    createdAt: now,
-    lastSeenAt: now,
-    revokedAt: null,
-  };
   const membership: Membership = {
     pairSpaceId: space.id,
     userId: user.id,
@@ -203,19 +195,9 @@ export async function consumeInvite(
     joinedAt: now,
     leftAt: null,
   };
-  await store.insertUser(user);
-  await store.insertInstallation(installation);
   await store.insertMembership(membership);
   await store.updateInvite({ ...invite, consumedAt: now, consumedBy: user.id });
-  return {
-    ok: true,
-    value: {
-      user,
-      installation,
-      installationSecret: secret,
-      pairSpaceId: space.id,
-    },
-  };
+  return { ok: true, value: { pairSpaceId: space.id } };
 }
 
 export async function updateProfile(
@@ -332,5 +314,163 @@ export async function completeRecovery(
   return {
     ok: true,
     value: { user, installation, installationSecret: secret },
+  };
+}
+
+export interface CreatedLoginAttempt {
+  readonly attempt: LoginAttempt;
+  /** Código en claro del QR: solo referencia el intento, no es credencial. */
+  readonly code: string;
+}
+
+/**
+ * Crea una solicitud de entrada (H9, estilo WhatsApp Web). La crea el
+ * dispositivo SIN sesión: solo abre la espera. No autoriza nada por sí sola.
+ */
+export async function createLoginAttempt(
+  store: PairingStore,
+  crypto: CryptoPort,
+  clock: ClockPort,
+  input: { platform: Platform; ttlSeconds: number },
+): Promise<Result<CreatedLoginAttempt>> {
+  if (
+    input.ttlSeconds < 60 ||
+    input.ttlSeconds > LOGIN_ATTEMPT_TTL_SECONDS * 2
+  ) {
+    return { ok: false, code: "VALIDATION_ERROR" };
+  }
+  const now = clock.nowIso();
+  const code = crypto.newSecret();
+  const attempt: LoginAttempt = {
+    id: crypto.newId(),
+    codeHash: await crypto.lookupHash(code),
+    platform: input.platform,
+    createdAt: now,
+    expiresAt: isoPlusSeconds(now, input.ttlSeconds),
+    approvedAt: null,
+    approvedUserId: null,
+    approvedByInstallationId: null,
+    consumedAt: null,
+  };
+  await store.insertLoginAttempt(attempt);
+  return { ok: true, value: { attempt, code } };
+}
+
+async function findAttemptByCode(
+  store: PairingStore,
+  crypto: CryptoPort,
+  attemptId: string,
+  code: string,
+): Promise<LoginAttempt | null> {
+  const attempt = await store.findLoginAttempt(attemptId);
+  if (!attempt) return null;
+  if ((await crypto.lookupHash(code)) !== attempt.codeHash) return null;
+  return attempt;
+}
+
+/**
+ * Aprueba una solicitud con sesión activa (= aprobación de un miembro,
+ * FR-10): vincula el intento pendiente a MI usuario. Escanear = aprobar.
+ */
+export async function approveLoginAttempt(
+  store: PairingStore,
+  crypto: CryptoPort,
+  clock: ClockPort,
+  input: {
+    attemptId: string;
+    code: string;
+    approverUserId: string;
+    approverInstallationId: string;
+  },
+): Promise<Result<{ platform: Platform }>> {
+  const attempt = await findAttemptByCode(
+    store,
+    crypto,
+    input.attemptId,
+    input.code,
+  );
+  if (!attempt) return { ok: false, code: "NOT_FOUND" };
+  const now = clock.nowIso();
+  if (attempt.expiresAt <= now) return { ok: false, code: "LOGIN_EXPIRED" };
+  if (attempt.approvedAt !== null || attempt.consumedAt !== null) {
+    return { ok: false, code: "LOGIN_ALREADY_USED" };
+  }
+  const installation = await store.findInstallation(
+    input.approverInstallationId,
+  );
+  if (
+    !installation ||
+    installation.userId !== input.approverUserId ||
+    installation.revokedAt !== null
+  ) {
+    return { ok: false, code: "FORBIDDEN" };
+  }
+  const user = await store.findUser(input.approverUserId);
+  if (!user) return { ok: false, code: "NOT_FOUND" };
+  await store.updateLoginAttempt({
+    ...attempt,
+    approvedAt: now,
+    approvedUserId: user.id,
+    approvedByInstallationId: installation.id,
+  });
+  return { ok: true, value: { platform: attempt.platform } };
+}
+
+export type LoginPollResult =
+  | { readonly status: "pending" }
+  | (RegisteredInstallation & {
+      readonly status: "approved";
+      readonly pairSpaceId: string | null;
+    });
+
+/**
+ * Sondea la solicitud (la llama el dispositivo que mostró el QR). Al
+ * aprobarse, crea la instalación del solicitante bajo el usuario que aprobó:
+ * misma identidad y misma sala, sin duplicar nada.
+ */
+export async function pollLoginAttempt(
+  store: PairingStore,
+  crypto: CryptoPort,
+  clock: ClockPort,
+  input: { attemptId: string; code: string },
+): Promise<Result<LoginPollResult>> {
+  const attempt = await findAttemptByCode(
+    store,
+    crypto,
+    input.attemptId,
+    input.code,
+  );
+  if (!attempt) return { ok: false, code: "NOT_FOUND" };
+  const now = clock.nowIso();
+  if (attempt.expiresAt <= now) return { ok: false, code: "LOGIN_EXPIRED" };
+  if (attempt.approvedAt === null || attempt.approvedUserId === null) {
+    return { ok: true, value: { status: "pending" } };
+  }
+  if (attempt.consumedAt !== null)
+    return { ok: false, code: "LOGIN_ALREADY_USED" };
+  const user = await store.findUser(attempt.approvedUserId);
+  if (!user) return { ok: false, code: "NOT_FOUND" };
+  const secret = crypto.newSecret();
+  const installation: Installation = {
+    id: crypto.newId(),
+    userId: user.id,
+    platform: attempt.platform,
+    credentialHash: await crypto.hashSecret(secret),
+    createdAt: now,
+    lastSeenAt: now,
+    revokedAt: null,
+  };
+  await store.insertInstallation(installation);
+  await store.updateLoginAttempt({ ...attempt, consumedAt: now });
+  const spaces = await store.userSpaces(user.id);
+  return {
+    ok: true,
+    value: {
+      status: "approved",
+      user,
+      installation,
+      installationSecret: secret,
+      pairSpaceId: spaces[0]?.pairSpaceId ?? null,
+    },
   };
 }

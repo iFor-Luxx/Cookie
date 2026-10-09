@@ -2,6 +2,7 @@
 import type {
   Installation,
   Invite,
+  LoginAttempt,
   Membership,
   PairSpace,
   RecoveryChallenge,
@@ -37,6 +38,8 @@ export type DomainErrorCode =
   | "PAIRSPACE_FULL"
   | "INVITE_EXPIRED"
   | "INVITE_ALREADY_USED"
+  | "LOGIN_EXPIRED"
+  | "LOGIN_ALREADY_USED"
   | "NOT_FOUND";
 
 export type Result<T, E extends string = DomainErrorCode> =
@@ -72,6 +75,10 @@ export interface PairingStore {
   insertRecoveryChallenge(c: RecoveryChallenge): Promise<void>;
   findRecoveryChallenge(id: string): Promise<RecoveryChallenge | null>;
   updateRecoveryChallenge(c: RecoveryChallenge): Promise<void>;
+  // login attempts (entrar escaneando: el PC muestra, el celular aprueba)
+  insertLoginAttempt(a: LoginAttempt): Promise<void>;
+  findLoginAttempt(id: string): Promise<LoginAttempt | null>;
+  updateLoginAttempt(a: LoginAttempt): Promise<void>;
   /** Instalaciones no revocadas por userId dentro del espacio. */
   countActiveInstallations(spaceId: string): Promise<Map<string, number>>;
 }

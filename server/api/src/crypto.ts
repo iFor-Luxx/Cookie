@@ -1,6 +1,9 @@
 import type { CryptoPort } from "@cookie/core";
 
-const HASH_ITERATIONS = 210_000;
+// Workers limita PBKDF2 a 100k iteraciones (NotSupportedError por encima).
+// El formato `pbkdf2$iter$...` guarda las iteraciones y verifySecret las
+// lee del hash, así que cambiar este valor no rompe hashes existentes.
+const HASH_ITERATIONS = 100_000;
 const SALT_BYTES = 16;
 
 /** CryptoPort WebCrypto (Workers + Node 24 + Bun). Formato hash: `pbkdf2$iter$saltB64$hashB64`. */

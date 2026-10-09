@@ -202,32 +202,77 @@ export class ApiClient {
     return this.post(`/v1/pair-spaces/${spaceId}/invites`, {});
   }
 
-  async consumeInvite(
-    inviteToken: string,
-    displayName: string,
-  ): Promise<{ pairSpaceId: string }> {
+  async consumeInvite(inviteToken: string): Promise<{ pairSpaceId: string }> {
+    const body = (await this.post("/v1/invites/consume", { inviteToken })) as {
+      pairSpaceId: string;
+    };
+    return { pairSpaceId: body.pairSpaceId };
+  }
+
+  /** Abre una espera de entrada y devuelve su QR (dispositivo sin sesión). */
+  async createLoginAttempt(): Promise<{
+    attemptId: string;
+    loginCode: string;
+    expiresAt: string;
+  }> {
     const platform: Platform =
       typeof window !== "undefined" && "Capacitor" in window
         ? "android"
         : "web";
-    const body = (await this.post("/v1/invites/consume", {
-      inviteToken,
-      displayName,
-      platform,
+    return this.post("/v1/login-attempts", { platform });
+  }
+
+  /** Aprueba una espera con la sesión activa (el celular escanea el QR). */
+  async approveLoginAttempt(
+    attemptId: string,
+    loginCode: string,
+  ): Promise<{ platform: string }> {
+    return this.post("/v1/login-attempts/approve", { attemptId, loginCode });
+  }
+
+  /** Sondea la espera: pendiente hasta que el otro dispositivo aprueba. */
+  async pollLoginAttempt(
+    attemptId: string,
+    loginCode: string,
+  ): Promise<
+    | { status: "pending" }
+    | {
+        status: "approved";
+        pairSpaceId: string | null;
+        userId: string;
+        installationId: string;
+        accessToken: string;
+        refreshToken: string;
+      }
+  > {
+    const body = (await this.post("/v1/login-attempts/poll", {
+      attemptId,
+      loginCode,
     })) as {
-      pairSpaceId: string;
+      status: "pending" | "approved";
+      pairSpaceId: string | null;
       userId: string;
       installationId: string;
       accessToken: string;
       refreshToken: string;
     };
-    this.setSession({
-      accessToken: body.accessToken,
-      refreshToken: body.refreshToken,
-      installationId: body.installationId,
-      userId: body.userId,
-    });
-    return { pairSpaceId: body.pairSpaceId };
+    if (body.status === "approved") {
+      this.setSession({
+        accessToken: body.accessToken,
+        refreshToken: body.refreshToken,
+        installationId: body.installationId,
+        userId: body.userId,
+      });
+      return {
+        status: "approved",
+        pairSpaceId: body.pairSpaceId,
+        userId: body.userId,
+        installationId: body.installationId,
+        accessToken: body.accessToken,
+        refreshToken: body.refreshToken,
+      };
+    }
+    return { status: "pending" };
   }
 
   async recoveryChallenge(

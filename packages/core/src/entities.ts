@@ -64,7 +64,27 @@ export interface RecoveryChallenge {
   readonly consumedAt: string | null;
 }
 
+/**
+ * Solicitud de entrada estilo WhatsApp Web (H9): el dispositivo SIN sesión
+ * muestra un QR; el dispositivo CON sesión lo escanea y aprueba. El QR no es
+ * credencial: solo referencia el intento pendiente. Un solo uso, TTL corto.
+ */
+export interface LoginAttempt {
+  readonly id: string;
+  readonly codeHash: string;
+  /** Plataforma del dispositivo que espera entrar (para mostrar al aprobar). */
+  readonly platform: Platform;
+  readonly createdAt: string;
+  readonly expiresAt: string;
+  readonly approvedAt: string | null;
+  readonly approvedUserId: string | null;
+  readonly approvedByInstallationId: string | null;
+  readonly consumedAt: string | null;
+}
+
 /** Máximo de miembros activos por PairSpace en MVP. */
 export const MAX_ACTIVE_MEMBERS = 2 as const;
 /** TTL del challenge de recovery: 10 minutos. */
 export const RECOVERY_CHALLENGE_TTL_SECONDS = 600 as const;
+/** TTL por defecto de la solicitud de entrada por QR: 5 minutos. */
+export const LOGIN_ATTEMPT_TTL_SECONDS = 300 as const;

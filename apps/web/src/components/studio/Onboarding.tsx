@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { ScanLine } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -9,30 +10,132 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 import { ApiError, api } from "@/lib/api";
+import { loginQrPayload, parseQrPayload } from "@/lib/invite-qr";
+import { loadLastSpaceId } from "@/lib/last-space";
+import { InviteQr } from "./InviteQr";
+import { QrScanner } from "./QrScanner";
 
 export function Onboarding({
   onDone,
 }: {
-  onDone: () => void;
+  // spaceId nulo: ir al setup (crear o unirse). Con valor: directo al estudio.
+  onDone: (spaceId: string | null) => void;
 }): React.JSX.Element {
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [recover, setRecover] = useState(false);
-  const [spaceId, setSpaceId] = useState("");
+  const [spaceId, setSpaceId] = useState(() => loadLastSpaceId() ?? "");
   const [secret, setSecret] = useState("");
+  // Entrada por QR (segundo dispositivo/persona): primero se escanea,
+  // después UN solo nombre. Registro + consumo encadenados.
+  const [scanning, setScanning] = useState(false);
+  const [inviteToken, setInviteToken] = useState<string | null>(null);
+  const [joinName, setJoinName] = useState("");
+  const [joinError, setJoinError] = useState<string | null>(null);
+  const [joinBusy, setJoinBusy] = useState(false);
+  // Entrada estilo WhatsApp Web: este PC muestra su QR y el celular con
+  // sesión lo escanea para aprobar. Sin escribir nada aquí.
+  const [attempt, setAttempt] = useState<{
+    attemptId: string;
+    code: string;
+  } | null>(null);
+  const [attemptError, setAttemptError] = useState<string | null>(null);
+  const [waiting, setWaiting] = useState(false);
+  const onDoneRef = useRef(onDone);
+  onDoneRef.current = onDone;
+
+  useEffect(() => {
+    if (!attempt) return;
+    let cancelled = false;
+    let timer: number | null = null;
+    setWaiting(true);
+    const tick = async (): Promise<void> => {
+      try {
+        const res = await api.pollLoginAttempt(
+          attempt.attemptId,
+          attempt.code,
+        );
+        if (cancelled) return;
+        if (res.status === "approved") {
+          setWaiting(false);
+          onDoneRef.current(res.pairSpaceId);
+          return;
+        }
+      } catch (e) {
+        // Terminal (caducado/inválido/usado): dejar de sondear.
+        // Fallo de red: seguir intentando en el siguiente tick.
+        if (cancelled || !(e instanceof ApiError)) {
+          if (!cancelled) timer = window.setTimeout(() => void tick(), 2500);
+          return;
+        }
+        if (!cancelled) {
+          setWaiting(false);
+          setAttemptError(e.message);
+        }
+        return;
+      }
+      if (!cancelled) timer = window.setTimeout(() => void tick(), 2500);
+    };
+    void tick();
+    return () => {
+      cancelled = true;
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [attempt]);
+
+  const openAttempt = async (): Promise<void> => {
+    setAttemptError(null);
+    setAttempt(null);
+    try {
+      const res = await api.createLoginAttempt();
+      setAttempt({ attemptId: res.attemptId, code: res.loginCode });
+    } catch (e) {
+      setAttemptError(
+        e instanceof ApiError ? e.message : "No se pudo generar el QR",
+      );
+    }
+  };
 
   const submit = async (): Promise<void> => {
     setBusy(true);
     setError(null);
     try {
       await api.register(name.trim());
-      onDone();
+      onDone(null);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "No se pudo registrar");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const joinWithToken = async (
+    token: string,
+    displayName: string,
+  ): Promise<void> => {
+    const t = token.trim();
+    const n = displayName.trim();
+    if (!t || !n) return;
+    setJoinBusy(true);
+    setJoinError(null);
+    try {
+      await api.register(n);
+    } catch (e) {
+      setJoinError(e instanceof ApiError ? e.message : "No se pudo registrar");
+      setJoinBusy(false);
+      return;
+    }
+    try {
+      const res = await api.consumeInvite(t);
+      onDone(res.pairSpaceId);
+    } catch (e) {
+      // Sesión creada pero sin espacio: se puede continuar al setup.
+      setJoinError(e instanceof ApiError ? e.message : "Invitación inválida");
+    } finally {
+      setJoinBusy(false);
     }
   };
 
@@ -43,7 +146,7 @@ export function Onboarding({
       const installationId = crypto.randomUUID();
       const ch = await api.recoveryChallenge(spaceId.trim(), installationId);
       await api.recoveryComplete(ch.challengeId, secret.trim());
-      onDone();
+      onDone(null);
     } catch {
       setError("No se pudo recuperar. Revisa el espacio y el secreto.");
     } finally {
@@ -66,10 +169,82 @@ export function Onboarding({
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
-          {!recover ? (
+          {scanning ? (
+            <QrScanner
+              onScan={(raw) => {
+                const parsed = parseQrPayload(raw);
+                setScanning(false);
+                if (!parsed) {
+                  setJoinError("QR no reconocido");
+                  return;
+                }
+                if (parsed.kind === "login") {
+                  setJoinError(
+                    "Ese QR es de entrada: apruébalo desde tu otro dispositivo (estudio, botón QR)",
+                  );
+                  return;
+                }
+                setJoinError(null);
+                setInviteToken(parsed.token);
+              }}
+              onClose={() => setScanning(false)}
+            />
+          ) : attempt ? (
             <>
+              <p className="text-sm text-muted-foreground">
+                Invitación lista. Pon tu nombre una sola vez para entrar.
+              </p>
               <div className="flex flex-col gap-2">
-                <Label htmlFor="name">Nombre</Label>
+                <Label htmlFor="joinName">Tu nombre visible</Label>
+                <Input
+                  id="joinName"
+                  value={joinName}
+                  onChange={(e) => setJoinName(e.target.value)}
+                  maxLength={32}
+                  placeholder="Lux"
+                />
+              </div>
+              {joinError && (
+                <p className="text-sm text-destructive">{joinError}</p>
+              )}
+              <Button
+                onClick={() => void joinWithToken(inviteToken, joinName)}
+                disabled={joinBusy || !joinName.trim()}
+              >
+                Unirse
+              </Button>
+              {joinError && (
+                <Button variant="secondary" onClick={() => onDone(null)}>
+                  Continuar sin unirse
+                </Button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setInviteToken(null);
+                  setJoinError(null);
+                  setScanning(true);
+                }}
+                className="text-sm text-muted-foreground underline-offset-4 hover:underline"
+              >
+                Escanear otro código
+              </button>
+            </>
+          ) : !recover ? (
+            <>
+              <Button
+                onClick={() => void openAttempt()}
+                disabled={busy || joinBusy}
+              >
+                <ScanLine className="size-4" aria-hidden /> Entrar con mi
+                celular
+              </Button>
+              {attemptError && (
+                <p className="text-sm text-destructive">{attemptError}</p>
+              )}
+              <Separator />
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="name">Nombre (cuenta nueva)</Label>
                 <Input
                   id="name"
                   value={name}
@@ -86,6 +261,18 @@ export function Onboarding({
               >
                 Entrar
               </Button>
+              <Separator />
+              <Button
+                variant="secondary"
+                onClick={() => setScanning(true)}
+                disabled={busy || joinBusy}
+              >
+                <ScanLine className="size-4" aria-hidden /> Tengo invitación:
+                escanear QR
+              </Button>
+              {joinError && !inviteToken && (
+                <p className="text-sm text-destructive">{joinError}</p>
+              )}
               <button
                 type="button"
                 onClick={() => setRecover(true)}
@@ -103,6 +290,9 @@ export function Onboarding({
                   value={spaceId}
                   onChange={(e) => setSpaceId(e.target.value)}
                 />
+                <p className="text-xs text-muted-foreground">
+                  Si este dispositivo ya estuvo en el espacio, se rellena solo.
+                </p>
               </div>
               <div className="flex flex-col gap-2">
                 <Label htmlFor="secret">Secreto de recuperación</Label>

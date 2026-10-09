@@ -9,6 +9,8 @@ export const errorCodeSchema = z.enum([
   "PAIRSPACE_FULL",
   "INVITE_EXPIRED",
   "INVITE_ALREADY_USED",
+  "LOGIN_EXPIRED",
+  "LOGIN_ALREADY_USED",
   "IDEMPOTENCY_CONFLICT",
   "UPLOAD_EXPIRED",
   "BLOB_NOT_FOUND",
@@ -102,21 +104,54 @@ export const createInviteResponse = z.object({
   expiresAt: z.string(),
 });
 
-// POST /v1/invites/consume
+// POST /v1/invites/consume — autenticado: vincula al usuario ya registrado.
+// Sin segundo nombre: la identidad viene del onboarding (una sola vez).
 export const consumeInviteRequest = z.object({
   inviteToken: z.string().min(1),
-  displayName: displayNameSchema,
-  platform: platformSchema.default("web"),
 });
 export const consumeInviteResponse = z.object({
   pairSpaceId: z.string(),
-  userId: z.string(),
-  installationId: z.string(),
-  installationSecret: z.string(),
-  accessToken: z.string(),
-  refreshToken: z.string(),
-  expiresInSeconds: z.number().int().positive(),
 });
+
+// POST /v1/login-attempts — abre una espera de entrada (sin sesión).
+// El QR no es credencial: solo referencia el intento pendiente.
+export const createLoginAttemptRequest = z.object({
+  platform: platformSchema.default("web"),
+  ttlSeconds: z.number().int().min(60).max(600).default(300),
+});
+export const createLoginAttemptResponse = z.object({
+  attemptId: z.string(),
+  loginCode: z.string(),
+  expiresAt: z.string(),
+});
+
+// POST /v1/login-attempts/approve — el celular con sesión aprueba (FR-10).
+export const approveLoginAttemptRequest = z.object({
+  attemptId: z.string().min(1),
+  loginCode: z.string().min(1),
+});
+export const approveLoginAttemptResponse = z.object({
+  platform: platformSchema,
+});
+
+// POST /v1/login-attempts/poll — el PC sondea hasta entrar (misma identidad).
+export const pollLoginAttemptRequest = z.object({
+  attemptId: z.string().min(1),
+  loginCode: z.string().min(1),
+});
+export const pollLoginAttemptResponse = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("pending") }),
+  z.object({
+    status: z.literal("approved"),
+    pairSpaceId: z.string().nullable(),
+    userId: z.string(),
+    installationId: z.string(),
+    installationSecret: z.string(),
+    accessToken: z.string(),
+    refreshToken: z.string(),
+    expiresInSeconds: z.number().int().positive(),
+  }),
+]);
 
 // POST /v1/pair-spaces/{id}/recovery-challenges
 export const recoveryChallengeRequest = z.object({
