@@ -1,0 +1,5 @@
+{
+  "name": "dev",
+  "compatibility_date": "2026-10-01",
+  "main": "../../server/api/src/index.ts"
+}

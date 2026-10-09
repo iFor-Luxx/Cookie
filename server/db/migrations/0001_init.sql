@@ -1,0 +1,2 @@
+-- server/db/migrations/0001_init.sql — esquema inicial SDD §5.3 (H4 lo valida).
+-- Intencionalmente vacío en H1; la migración real se revisa con D1 local.

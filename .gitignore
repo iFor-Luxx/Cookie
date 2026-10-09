@@ -1,0 +1,36 @@
+node_modules/
+dist/
+build/
+.next/
+coverage/
+*.local
+.DS_Store
+Thumbs.db
+
+# Bun / Vite
+bun.lockb
+*.tsbuildinfo
+apps/web/dist/
+apps/web/.vite/
+
+# Android / Capacitor
+apps/android/android/
+apps/android/dist/
+*.apk
+*.aab
+*.keystore
+*.jks
+local.properties
+
+# Cloudflare
+.dev.vars
+.wrangler/
+d1/*.sqlite*
+
+# Secrets — nunca commitear
+.env
+.env.*
+!.env.example
+google-services.json
+*.p8
+*.pem
