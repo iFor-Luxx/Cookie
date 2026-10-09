@@ -18,7 +18,7 @@ import {
 } from "@cookie/sync";
 import { ApiError, api } from "./api";
 import {
-  type PxPoint,
+  glTopLeftMapper,
   p5ScaleForBacking,
   registerCookieBrushes,
   renderDocumentP5,
@@ -91,10 +91,7 @@ async function paintPreviewP5(
     brush.scaleBrushes(scale);
     const docW = doc.canvas.width || 1024;
     const k = size / docW;
-    const toPx = (x: number, y: number): PxPoint => ({
-      x: x * size,
-      y: y * size,
-    });
+    const toPx = glTopLeftMapper(size);
     renderDocumentP5(
       brush,
       {

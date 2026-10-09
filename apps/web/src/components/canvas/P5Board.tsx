@@ -6,7 +6,7 @@ import {
 import type { DraftStore } from "@cookie/platform-web";
 import { useEffect, useRef, useState } from "react";
 import {
-  type PxPoint,
+  glTopLeftMapper,
   p5ScaleForBacking,
   registerCookieBrushes,
   renderDocumentP5,
@@ -66,6 +66,7 @@ function P5BoardInner({
     let unsubscribe: (() => void) | null = null;
     let detachPointer: (() => void) | null = null;
     let gl: HTMLCanvasElement | null = null;
+    let raf = 0;
 
     const scheduleSave = (): void => {
       callbacksRef.current.onSaveState("saving");
@@ -85,8 +86,10 @@ function P5BoardInner({
         const mod = await import("p5.brush/standalone");
         if (cancelled) return;
         const dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR);
-        const rect = wrap.getBoundingClientRect();
-        const cssSize = Math.min(rect.width, 640);
+        // Medir el PADRE: el wrap colapsa (aún no hay canvas dentro) y
+        // medirlo daría ~0px para siempre (lienzo invisible pero dibujable).
+        const parentW = wrap.parentElement?.getBoundingClientRect().width ?? 0;
+        const cssSize = Math.min(Math.max(parentW, 200), 640);
         const backing = Math.max(1, Math.round(cssSize * dpr));
         const scale = p5ScaleForBacking(backing);
         const el = document.createElement("canvas");
@@ -110,10 +113,7 @@ function P5BoardInner({
           const view = engine.exportDocument();
           const docW = view.canvas.width || DOC_FALLBACK_SIZE;
           const k = backing / docW;
-          const toPx = (x: number, y: number): PxPoint => ({
-            x: x * backing,
-            y: y * backing,
-          });
+          const toPx = glTopLeftMapper(backing);
           const strokes = view.strokes.map((s) => ({ ...s, size: s.size * k }));
           const peek = engine.peekActive();
           const active =
@@ -136,6 +136,20 @@ function P5BoardInner({
           );
         };
 
+        // Un dibujo por frame como máximo: los pointermove pueden llegar a
+        // 240Hz y cada uno re-renderiza el documento entero. El draw lee el
+        // estado vivo del engine, así que coalescer nunca pierde el final.
+        let dirty = false;
+        const requestDraw = (): void => {
+          if (dirty || cancelled) return;
+          dirty = true;
+          raf = requestAnimationFrame(() => {
+            dirty = false;
+            raf = 0;
+            draw();
+          });
+        };
+
         try {
           const raw = await draftStore.loadDraft(draftId);
           if (!cancelled && raw) engine.loadDocument(parseDocument(raw));
@@ -144,7 +158,7 @@ function P5BoardInner({
         }
         if (cancelled) return;
         unsubscribe = engine.subscribe((e) => {
-          draw();
+          requestDraw();
           if (e === "strokes") {
             scheduleSave();
             callbacksRef.current.onStrokesVersion();
@@ -156,7 +170,7 @@ function P5BoardInner({
           () => brushRef.current,
           el,
         );
-        draw();
+        requestDraw();
       } catch {
         if (!cancelled) onFailRef.current();
       }
@@ -166,6 +180,7 @@ function P5BoardInner({
       cancelled = true;
       unsubscribe?.();
       detachPointer?.();
+      cancelAnimationFrame(raf);
       if (saveTimer.current !== null) window.clearTimeout(saveTimer.current);
       gl?.remove();
       gl = null;

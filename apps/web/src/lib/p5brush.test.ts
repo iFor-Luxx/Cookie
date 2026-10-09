@@ -1,6 +1,7 @@
 import type { BrushAddParams } from "p5.brush/standalone";
 import { describe, expect, it } from "vitest";
 import {
+  glTopLeftMapper,
   type P5StrokeApi,
   p5WeightForSize,
   registerCookieBrushes,
@@ -117,6 +118,13 @@ describe("p5brush mapping", () => {
         expect(Number.isFinite(def.params[k] as number)).toBe(true);
       }
     }
+  });
+
+  it("glTopLeftMapper centra el origen WebGL e invierte Y (arriba es arriba)", () => {
+    const toPx = glTopLeftMapper(256);
+    expect(toPx(0.5, 0.5)).toEqual({ x: 0, y: 0 });
+    expect(toPx(0, 0)).toEqual({ x: -128, y: 128 });
+    expect(toPx(1, 1)).toEqual({ x: 128, y: -128 });
   });
 
   it("p5WeightForSize escala monótona y valor conocido", () => {

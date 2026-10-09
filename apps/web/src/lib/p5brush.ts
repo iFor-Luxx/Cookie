@@ -239,6 +239,18 @@ export interface PxPoint {
   readonly y: number;
 }
 
+/**
+ * Mapeo normalizado → píxeles del canvas GL. El origen WebGL está en el
+ * CENTRO con Y hacia ARRIBA (verificado con readback: sin negar, lo de
+ * arriba sale abajo). Un solo sitio, con test.
+ */
+export function glTopLeftMapper(
+  backingPx: number,
+): (x: number, y: number) => PxPoint {
+  const half = backingPx / 2;
+  return (x, y) => ({ x: x * backingPx - half, y: half - y * backingPx });
+}
+
 export interface P5FrameApi extends P5StrokeApi {
   clear(color?: string): void;
   render(): void;

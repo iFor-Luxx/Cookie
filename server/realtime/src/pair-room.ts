@@ -125,8 +125,18 @@ export class PairRoom {
       installationId: claimed.installationId,
       socketId,
     } satisfies Attachment);
+    // RFC 6455 §4.1: si el cliente ofreció subprotocolo y no lo reflejamos,
+    // el navegador aborta el handshake aunque el DO haya aceptado.
+    const headers = new Headers();
+    const offered = (req.headers.get("sec-websocket-protocol") ?? "")
+      .split(",")
+      .map((s) => s.trim());
+    if (offered.includes("pair.v1")) {
+      headers.set("Sec-WebSocket-Protocol", "pair.v1");
+    }
     return new Response(null, {
       status: 101,
+      headers,
       webSocket: client as unknown as WebSocket,
     } as ResponseInit) as unknown as Response;
   }
