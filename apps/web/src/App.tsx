@@ -16,6 +16,12 @@ import { SpaceSetup } from "@/components/studio/SpaceSetup";
 import { BrandWipe } from "@/components/studio/wipe/BrandWipe";
 import { EXIT_WIPE } from "@/components/studio/wipe/wipe-math";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Toaster } from "@/components/ui/sonner";
 import { api } from "@/lib/api";
 import { installDeepLinkListener } from "@/lib/deep-link";
@@ -64,6 +70,7 @@ export function App(): React.JSX.Element {
   const [canvasMode, setCanvasMode] = useState<CanvasMode>("draw");
   const [viewReset, setViewReset] = useState(0);
   const [zoom, setZoom] = useState(1);
+  const [confirmExit, setConfirmExit] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>("local");
   const [, setVersion] = useState(0);
   const [pending, setPending] = useState(0);
@@ -210,37 +217,11 @@ export function App(): React.JSX.Element {
                   size="sm"
                   aria-label="Salir al historial"
                   title="Salir al historial"
-                  onClick={() => setTab("historial")}
+                  onClick={() => setConfirmExit(true)}
                   className="rounded-full bg-red-500 text-white shadow-sm hover:bg-red-500/90"
                 >
                   <ArrowLeft className="size-4" aria-hidden />
                   Salir
-                </Button>
-                <Button
-                  size="icon"
-                  variant="secondary"
-                  aria-label="Deshacer"
-                  disabled={!engine.canUndo()}
-                  onClick={() => {
-                    engine.undo();
-                    setVersion((v) => v + 1);
-                  }}
-                  className="size-8 rounded-full"
-                >
-                  <Undo2 className="size-4" aria-hidden />
-                </Button>
-                <Button
-                  size="icon"
-                  variant="secondary"
-                  aria-label="Rehacer"
-                  disabled={!engine.canRedo()}
-                  onClick={() => {
-                    engine.redo();
-                    setVersion((v) => v + 1);
-                  }}
-                  className="size-8 rounded-full"
-                >
-                  <Redo2 className="size-4" aria-hidden />
                 </Button>
               </div>
               <Button
@@ -296,6 +277,32 @@ export function App(): React.JSX.Element {
                 <Button
                   variant="ghost"
                   size="icon"
+                  aria-label="Deshacer"
+                  disabled={!engine.canUndo()}
+                  onClick={() => {
+                    engine.undo();
+                    setVersion((v) => v + 1);
+                  }}
+                  className="size-8 rounded-full"
+                >
+                  <Undo2 className="size-4" aria-hidden />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Rehacer"
+                  disabled={!engine.canRedo()}
+                  onClick={() => {
+                    engine.redo();
+                    setVersion((v) => v + 1);
+                  }}
+                  className="size-8 rounded-full"
+                >
+                  <Redo2 className="size-4" aria-hidden />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
                   aria-label="Centrar vista"
                   title="Centrar vista"
                   onClick={() => setViewReset((n) => n + 1)}
@@ -345,6 +352,36 @@ export function App(): React.JSX.Element {
               </Button>
             )}
           </div>
+          <Dialog
+            open={confirmExit}
+            onOpenChange={(open) => setConfirmExit(open)}
+          >
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>¿Seguro de salir?</DialogTitle>
+              </DialogHeader>
+              <p className="text-sm text-muted-foreground">
+                Tu borrador se guarda solo y seguirá aquí al volver.
+              </p>
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="secondary"
+                  onClick={() => setConfirmExit(false)}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  onClick={() => {
+                    setConfirmExit(false);
+                    setTab("historial");
+                  }}
+                  className="rounded-full bg-red-500 text-white shadow-sm hover:bg-red-500/90"
+                >
+                  Salir
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
       ) : (
         <div className="mx-auto flex max-w-3xl flex-col gap-5 px-4 py-8">
