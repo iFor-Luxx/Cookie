@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   BRAND_WIPE,
-  easeInOutCubic,
   EXIT_WIPE,
+  easeInOutCubic,
   hexToRgb,
   inverseEaseInOutCubic,
   sweepAxis,

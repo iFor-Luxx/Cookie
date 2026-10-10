@@ -162,27 +162,27 @@ export const WipeCanvas = forwardRef<WipeCanvasHandle, { className?: string }>(
         return pendingRef.current;
       },
 
-    draw(params, progress) {
-      const renderer = rendererRef.current;
-      const canvas = canvasRef.current;
-      if (!renderer || !canvas) return;
+      draw(params, progress) {
+        const renderer = rendererRef.current;
+        const canvas = canvasRef.current;
+        if (!renderer || !canvas) return;
 
-      // Tope 2x como la referencia: más allá el fragmento cuesta el
-      // doble sin ganancia visible. Si el device se pierde, el fallback
-      // 2D toma el relevo.
-      const dpr = Math.min(globalThis.devicePixelRatio || 1, 2);
-      const width = Math.max(Math.round(canvas.clientWidth * dpr), 1);
-      const height = Math.max(Math.round(canvas.clientHeight * dpr), 1);
-      if (canvas.width !== width) canvas.width = width;
-      if (canvas.height !== height) canvas.height = height;
+        // Tope 2x como la referencia: más allá el fragmento cuesta el
+        // doble sin ganancia visible. Si el device se pierde, el fallback
+        // 2D toma el relevo.
+        const dpr = Math.min(globalThis.devicePixelRatio || 1, 2);
+        const width = Math.max(Math.round(canvas.clientWidth * dpr), 1);
+        const height = Math.max(Math.round(canvas.clientHeight * dpr), 1);
+        if (canvas.width !== width) canvas.width = width;
+        if (canvas.height !== height) canvas.height = height;
 
-      const { device, context, pipeline, uniform, bindGroup, scratch } =
-        renderer;
-      device.queue.writeBuffer(
-        uniform,
-        0,
-        packParams(scratch, params, progress, width, height),
-      );
+        const { device, context, pipeline, uniform, bindGroup, scratch } =
+          renderer;
+        device.queue.writeBuffer(
+          uniform,
+          0,
+          packParams(scratch, params, progress, width, height),
+        );
 
         const encoder = device.createCommandEncoder();
         const pass = encoder.beginRenderPass({

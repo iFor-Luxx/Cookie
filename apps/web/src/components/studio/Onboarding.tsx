@@ -1,4 +1,4 @@
-import { ArrowRight, ScanLine } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,6 +11,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError, api } from "@/lib/api";
 import { loginQrPayload } from "@/lib/invite-qr";
 import { loadLastSpaceId } from "@/lib/last-space";
@@ -121,15 +122,28 @@ export function Onboarding({
     setAttempt(null);
     try {
       const res = await api.createLoginAttempt();
-      transitionTo(() =>
-        setAttempt({ attemptId: res.attemptId, code: res.loginCode }),
-      );
+      setAttempt({ attemptId: res.attemptId, code: res.loginCode });
     } catch (e) {
       setAttemptError(
         e instanceof ApiError ? e.message : "No se pudo generar el QR",
       );
     }
   };
+  const openAttemptRef = useRef(openAttempt);
+  openAttemptRef.current = openAttempt;
+
+  // Al entrar a "Ya tienes una sala": mostrar el QR ya generado,
+  // sin botón intermedio.
+  const recoverOpenedRef = useRef(false);
+  useEffect(() => {
+    if (!recover) {
+      recoverOpenedRef.current = false;
+      return;
+    }
+    if (recoverOpenedRef.current) return;
+    recoverOpenedRef.current = true;
+    void openAttemptRef.current();
+  }, [recover]);
 
   const submit = async (): Promise<void> => {
     setBusy(true);
@@ -158,6 +172,64 @@ export function Onboarding({
       setBusy(false);
     }
   };
+
+  // Nodo destino del wipe de entrada (se monta recortado tras el
+  // overlay y también en la etapa normal: contenido estático).
+  // OJO: la capa `to` del wipe debe encuadrar EXACTO igual que la
+  // pantalla final (cielo + centrado), si no a mitad del barrido se ven
+  // las dos pantallas desalineadas (Bienvenido arriba, cover debajo).
+  // Versión estática para el wipe: sin animación de entrada (ya la hace
+  // el barrido) y sin botón interactivo (evita doble avance a mitad del
+  // vuelo). La versión animada sigue debajo para la etapa normal.
+  const welcomeWipeNode = (
+    <div className="absolute inset-0 overflow-hidden bg-background">
+      <SkyBackground variant={dark ? "night" : "day"} />
+      <div className="relative flex min-h-dvh items-center justify-center px-4">
+        <div className="flex flex-col items-center gap-8 text-center">
+          <div className="flex flex-col gap-2">
+            <h1 className="font-serif text-6xl leading-tight text-foreground">
+              Bienvenido
+            </h1>
+            <p className="text-base text-foreground/80">
+              Unos cuantos pasos antes de empezar.
+            </p>
+          </div>
+          <div
+            aria-hidden
+            className="liquid-glass flex size-14 items-center justify-center rounded-full text-slate-800 dark:text-white"
+          >
+            <ArrowRight className="size-6" aria-hidden />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  const welcomeNode = (
+    <div
+      className={cn(
+        "flex flex-col items-center gap-8 text-center",
+        !reducedMotion && "animate-[rise-in_0.6s_ease-out_both]",
+      )}
+    >
+      <div className="flex flex-col gap-2">
+        <h1 className="font-serif text-6xl leading-tight text-foreground">
+          Bienvenido
+        </h1>
+        <p className="text-base text-foreground/80">
+          Unos cuantos pasos antes de empezar.
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={() => transitionTo(() => setWelcomed(true))}
+        aria-label="Continuar al registro"
+        className="liquid-glass flex size-14 items-center justify-center rounded-full text-slate-800 transition-transform hover:scale-105 active:scale-95 dark:text-white"
+      >
+        <ArrowRight className="size-6" aria-hidden />
+      </button>
+    </div>
+  );
 
   return (
     <main className="relative flex min-h-dvh items-center justify-center overflow-hidden bg-background px-4">
@@ -239,35 +311,13 @@ export function Onboarding({
           </div>
         </div>
       ) : !welcomed ? (
-        <div
-          className={cn(
-            "flex flex-col items-center gap-8 text-center",
-            !reducedMotion && "animate-[rise-in_0.6s_ease-out_both]",
-          )}
-        >
-          {" "}
-          <div className="flex flex-col gap-2">
-            <h1 className="font-serif text-6xl leading-tight text-foreground">
-              Bienvenido
-            </h1>
-            <p className="text-base text-foreground/80">
-              Unos cuantos pasos antes de empezar.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => transitionTo(() => setWelcomed(true))}
-            aria-label="Continuar al registro"
-            className="liquid-glass flex size-14 items-center justify-center rounded-full text-slate-800 transition-transform hover:scale-105 active:scale-95 dark:text-white"
-          >
-            <ArrowRight className="size-6" aria-hidden />
-          </button>
-        </div>
+        welcomeNode
       ) : (
         <Card
+          key={recover ? "recover-box" : "new-box"}
           className={cn(
             "liquid-glass-card relative w-full max-w-sm",
-            !reducedMotion && "animate-[rise-in_0.5s_ease-out_both]",
+            !reducedMotion && "animate-[fade-in_0.45s_ease-out_both]",
           )}
         >
           <CardHeader>
@@ -275,72 +325,31 @@ export function Onboarding({
               Cookie
             </p>
             <CardTitle className="font-serif text-3xl">
-              Hola, ¿cómo te llamas?
+              Hola, coloca tu nombre
             </CardTitle>
             <CardDescription>
-              Nombre visible de 1 a 32 caracteres. Sin contraseñas.
+              Este nombre es tu nuevo apodo y es visible.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
-            {attempt ? (
+            <div className="flex flex-col gap-4">
+            {!recover ? (
               <>
-                <div className="flex flex-col items-center gap-2">
-                  <p className="text-sm text-muted-foreground">
-                    Escanea este QR con tu celular para entrar a tu misma sala,
-                    sin crear otra.
-                  </p>
-                  <InviteQr
-                    payload={loginQrPayload(attempt.attemptId, attempt.code)}
-                    label="QR de entrada"
-                  />
-                </div>
-                {waiting && (
-                  <p className="text-sm text-muted-foreground">
-                    Esperando aprobación…
-                  </p>
-                )}
-                {attemptError && (
-                  <p className="text-sm text-destructive">{attemptError}</p>
-                )}
-                <div className="flex gap-2">
-                  <Button
-                    variant="secondary"
-                    onClick={() => void openAttempt()}
-                  >
-                    Generar otro
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    onClick={() =>
-                      transitionTo(() => {
-                        setAttempt(null);
-                        setAttemptError(null);
-                      })
-                    }
-                  >
-                    Volver
-                  </Button>
-                </div>
-              </>
-            ) : !recover ? (
-              <>
-                <Button onClick={() => void openAttempt()} disabled={busy}>
-                  <ScanLine className="size-4" aria-hidden /> Entrar con mi
-                  celular
-                </Button>
-                {attemptError && (
-                  <p className="text-sm text-destructive">{attemptError}</p>
-                )}
-                <Separator />
                 <div className="flex flex-col gap-2">
-                  <Label htmlFor="name">Nombre (cuenta nueva)</Label>
+                  <Label htmlFor="name">Nombre</Label>
                   <Input
                     id="name"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     maxLength={32}
                     placeholder="Lux"
-                    autoComplete="nickname"
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
+                    name="cookie-display-name"
+                    data-1p-ignore
+                    data-lpignore="true"
                   />
                 </div>
                 {error && <p className="text-sm text-destructive">{error}</p>}
@@ -352,14 +361,61 @@ export function Onboarding({
                 </Button>
                 <button
                   type="button"
-                  onClick={() => transitionTo(() => setRecover(true))}
+                  onClick={() => setRecover(true)}
                   className="text-sm text-muted-foreground underline-offset-4 hover:underline"
                 >
-                  Recuperar acceso en este dispositivo
+                  ¿Ya tienes una sala? Ingresa aquí
                 </button>
               </>
             ) : (
               <>
+                <div className="flex flex-col items-center gap-2">
+                  <p className="text-sm text-muted-foreground">
+                    Escanea este QR con tu celular para entrar a tu misma sala,
+                    sin crear otra.
+                  </p>
+                  {attempt ? (
+                    <div
+                      key="qr"
+                      className={cn(
+                        !reducedMotion &&
+                          "animate-[fade-in_0.45s_ease-out_both]",
+                      )}
+                    >
+                      <InviteQr
+                        payload={loginQrPayload(attempt.attemptId, attempt.code)}
+                        label="QR de entrada"
+                      />
+                    </div>
+                  ) : attemptError ? (
+                    <div className="flex h-48 w-48 flex-col items-center justify-center gap-2 text-center">
+                      <p className="text-sm text-destructive">{attemptError}</p>
+                      <button
+                        type="button"
+                        onClick={() => void openAttempt()}
+                        className="text-sm text-muted-foreground underline-offset-4 hover:underline"
+                      >
+                        Reintentar
+                      </button>
+                    </div>
+                  ) : (
+                    <div
+                      className="flex flex-col items-center gap-2"
+                      role="status"
+                      aria-label="Generando QR…"
+                    >
+                      <Skeleton className="h-48 w-48 rounded-md" />
+                      <span className="sr-only">Generando QR…</span>
+                    </div>
+                  )}
+                  <p
+                    className="min-h-5 text-sm text-muted-foreground"
+                    aria-live="polite"
+                  >
+                    {waiting && attempt ? "Esperando aprobación…" : " "}
+                  </p>
+                </div>
+                <Separator />
                 <div className="flex flex-col gap-2">
                   <Label htmlFor="space">ID del espacio</Label>
                   <Input
@@ -389,20 +445,28 @@ export function Onboarding({
                 </Button>
                 <button
                   type="button"
-                  onClick={() => transitionTo(() => setRecover(false))}
+                  onClick={() => {
+                    setRecover(false);
+                    setAttempt(null);
+                    setAttemptError(null);
+                  }}
                   className="text-sm text-muted-foreground underline-offset-4 hover:underline"
                 >
                   Volver
                 </button>
               </>
             )}
+            </div>
           </CardContent>
         </Card>
       )}
       {wiping && (
         <BrandWipe
-          onReveal={() => setStarted(true)}
-          onDone={() => setWiping(false)}
+          to={welcomeWipeNode}
+          onDone={() => {
+            setStarted(true);
+            setWiping(false);
+          }}
         />
       )}
     </main>

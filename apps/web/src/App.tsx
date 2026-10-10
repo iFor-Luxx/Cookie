@@ -193,145 +193,144 @@ export function App(): React.JSX.Element {
       />
     );
   }
-  if (!entering && (screen === "setup" || !spaceId)) {
-    return (
-      <SpaceSetup
-        onDone={(id) => {
-          setSpaceId(id);
-          setScreen("studio");
-        }}
-        onEnter={(id) => {
-          // Movimiento reducido: entrar directo sin barrido.
-          if (
-            typeof window !== "undefined" &&
-            typeof window.matchMedia === "function" &&
-            window.matchMedia("(prefers-reduced-motion: reduce)").matches
-          ) {
-            setSpaceId(id);
-            setScreen("studio");
-            return;
-          }
-          setEntering(id);
-        }}
-      />
-    );
-  }
-  const studioSpaceId = spaceId ?? entering ?? "";
-
-  return (
-    <>
-      <main className="min-h-dvh bg-background text-foreground">
-        <Toaster />
-        <div className="mx-auto flex max-w-3xl flex-col gap-5 px-4 py-8">
-          <header className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <p className="font-pixel text-xs tracking-widest text-muted-foreground uppercase">
-                Cookie · espacio compartido
-              </p>
-              <h1 className="font-serif text-4xl leading-tight">Estudio</h1>
-            </div>
-            <div className="flex items-center gap-2">
-              <Badge variant={saveState === "saved" ? "secondary" : "outline"}>
-                {SAVE_LABEL[saveState]}
+  // Pantalla del estudio como nodo reutilizable: en la entrada normal
+  // se renderiza sola; en el wipe de salida va recortada tras el
+  // overlay mientras el setup sigue vivo debajo.
+  const renderStudio = (id: string): React.JSX.Element => (
+    <main className="min-h-dvh bg-background text-foreground">
+      <Toaster />
+      <div className="mx-auto flex max-w-3xl flex-col gap-5 px-4 py-8">
+        <header className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="font-pixel text-xs tracking-widest text-muted-foreground uppercase">
+              Cookie · espacio compartido
+            </p>
+            <h1 className="font-serif text-4xl leading-tight">Estudio</h1>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge variant={saveState === "saved" ? "secondary" : "outline"}>
+              {SAVE_LABEL[saveState]}
+            </Badge>
+            {pending > 0 && (
+              <Badge variant="outline">
+                <CloudOff className="size-3" aria-hidden /> {pending} pendiente
               </Badge>
-              {pending > 0 && (
-                <Badge variant="outline">
-                  <CloudOff className="size-3" aria-hidden /> {pending}{" "}
-                  pendiente
-                </Badge>
-              )}
-              {failed > 0 && (
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={() => void syncEngine.retryAllFailed()}
-                >
-                  <RefreshCw className="size-3" aria-hidden /> Reintentar (
-                  {failed})
-                </Button>
-              )}
-              <LoginQrDialog />
+            )}
+            {failed > 0 && (
               <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Cerrar sesión"
-                onClick={() => {
-                  realtimeRef.current?.stop();
-                  setSyncSpace(null);
-                  api.logout();
-                  setScreen("onboarding");
-                }}
+                variant="destructive"
+                size="sm"
+                onClick={() => void syncEngine.retryAllFailed()}
               >
-                <LogOut className="size-4" aria-hidden />
+                <RefreshCw className="size-3" aria-hidden /> Reintentar (
+                {failed})
               </Button>
-            </div>
-          </header>
-          <Tabs value={tab} onValueChange={setTab}>
-            <TabsList>
-              <TabsTrigger value="lienzo">Lienzo</TabsTrigger>
-              <TabsTrigger value="historial">Historial</TabsTrigger>
-            </TabsList>
-          </Tabs>
-          {tab === "lienzo" ? (
-            <>
-              <Toolbar
-                brush={brush}
-                onBrush={setBrush}
-                canUndo={engine.canUndo()}
-                canRedo={engine.canRedo()}
-                onUndo={() => {
-                  engine.undo();
-                  setVersion((v) => v + 1);
-                }}
-                onRedo={() => {
-                  engine.redo();
-                  setVersion((v) => v + 1);
-                }}
-              />
-              <CanvasBoard
-                engine={engine}
-                brush={brush}
-                draftStore={draftStore}
-                draftId={DRAFT_ID}
-                onSaveState={setSaveState}
-                onStrokesVersion={() => setVersion((v) => v + 1)}
-              />
-              <div className="flex flex-col items-center gap-2">
-                <Button onClick={publish}>
-                  <Send className="size-4" aria-hidden /> Publicar al historial
-                </Button>
-                <p className="text-sm text-muted-foreground">
-                  Sin conexión se encola y se envía solo al volver la red.
-                </p>
-              </div>
-            </>
-          ) : (
-            <Suspense
-              fallback={
-                <p className="text-sm text-muted-foreground">
-                  Cargando historial…
-                </p>
-              }
+            )}
+            <LoginQrDialog />
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Cerrar sesión"
+              onClick={() => {
+                realtimeRef.current?.stop();
+                setSyncSpace(null);
+                api.logout();
+                setScreen("onboarding");
+              }}
             >
-              <History
-                key={historyKey}
-                spaceId={studioSpaceId}
-                focusId={focusDrawing}
-              />
-            </Suspense>
-          )}
-        </div>
-      </main>
-      {entering && (
-        <BrandWipe
-          params={EXIT_WIPE}
-          onReveal={() => {
-            setSpaceId(entering);
+              <LogOut className="size-4" aria-hidden />
+            </Button>
+          </div>
+        </header>
+        <Tabs value={tab} onValueChange={setTab}>
+          <TabsList>
+            <TabsTrigger value="lienzo">Lienzo</TabsTrigger>
+            <TabsTrigger value="historial">Historial</TabsTrigger>
+          </TabsList>
+        </Tabs>
+        {tab === "lienzo" ? (
+          <>
+            <Toolbar
+              brush={brush}
+              onBrush={setBrush}
+              canUndo={engine.canUndo()}
+              canRedo={engine.canRedo()}
+              onUndo={() => {
+                engine.undo();
+                setVersion((v) => v + 1);
+              }}
+              onRedo={() => {
+                engine.redo();
+                setVersion((v) => v + 1);
+              }}
+            />
+            <CanvasBoard
+              engine={engine}
+              brush={brush}
+              draftStore={draftStore}
+              draftId={DRAFT_ID}
+              onSaveState={setSaveState}
+              onStrokesVersion={() => setVersion((v) => v + 1)}
+            />
+            <div className="flex flex-col items-center gap-2">
+              <Button onClick={publish}>
+                <Send className="size-4" aria-hidden /> Publicar al historial
+              </Button>
+              <p className="text-sm text-muted-foreground">
+                Sin conexión se encola y se envía solo al volver la red.
+              </p>
+            </div>
+          </>
+        ) : (
+          <Suspense
+            fallback={
+              <p className="text-sm text-muted-foreground">
+                Cargando historial…
+              </p>
+            }
+          >
+            <History key={historyKey} spaceId={id} focusId={focusDrawing} />
+          </Suspense>
+        )}
+      </div>
+    </main>
+  );
+
+  if (screen === "setup" || !spaceId) {
+    return (
+      <>
+        <SpaceSetup
+          onDone={(nextId) => {
+            setSpaceId(nextId);
             setScreen("studio");
           }}
-          onDone={() => setEntering(null)}
+          onEnter={(nextId) => {
+            // Movimiento reducido: entrar directo sin barrido.
+            if (
+              typeof window !== "undefined" &&
+              typeof window.matchMedia === "function" &&
+              window.matchMedia("(prefers-reduced-motion: reduce)").matches
+            ) {
+              setSpaceId(nextId);
+              setScreen("studio");
+              return;
+            }
+            setEntering(nextId);
+          }}
         />
-      )}
-    </>
-  );
+        {entering && (
+          <BrandWipe
+            to={renderStudio(entering)}
+            params={EXIT_WIPE}
+            onDone={() => {
+              setSpaceId(entering);
+              setScreen("studio");
+              setEntering(null);
+            }}
+          />
+        )}
+      </>
+    );
+  }
+  return renderStudio(spaceId);
 }

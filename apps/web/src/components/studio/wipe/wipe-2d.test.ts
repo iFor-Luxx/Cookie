@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { drawWipeFrame, fbm1, hash1, ribbonStrip, sampleRamp } from "./wipe-2d";
+import {
+  drawRibbonFrame,
+  fbm1,
+  hash1,
+  ribbonStrip,
+  sampleRamp,
+} from "./wipe-2d";
 import { BRAND_WIPE, wipePolygonPoints } from "./wipe-math";
 
 describe("wipe 2d", () => {
@@ -56,7 +62,7 @@ describe("wipe 2d", () => {
     expect(a).toBe(b);
   });
 
-  it("drawWipeFrame pinta superficie + cinta con gradiente + grano", () => {
+  it("drawRibbonFrame pinta solo la cinta (sin superficie ni grano)", () => {
     const stops: string[][] = [];
     const fills: string[] = [];
     const ctx = {
@@ -65,20 +71,23 @@ describe("wipe 2d", () => {
       moveTo: vi.fn(),
       lineTo: vi.fn(),
       closePath: vi.fn(),
-      fill: vi.fn(() => fills.push(`fill:${String(ctx.fillStyle).slice(0, 20)}`)),
+      fill: vi.fn(() =>
+        fills.push(`fill:${String(ctx.fillStyle).slice(0, 20)}`),
+      ),
       fillRect: vi.fn(),
       createLinearGradient: vi.fn(() => ({
-        addColorStop: vi.fn((o: number, c: string) => void stops.push([`${o}`, c])),
+        addColorStop: vi.fn(
+          (o: number, c: string) => void stops.push([`${o}`, c]),
+        ),
       })),
       fillStyle: "#000000",
     };
-    drawWipeFrame(
+    drawRibbonFrame(
       ctx as unknown as CanvasRenderingContext2D,
       400,
       800,
       BRAND_WIPE,
       0.5,
-      "#ffffff",
     );
     expect(ctx.clearRect).toHaveBeenCalledOnce();
     // 64 rebanadas con gradiente Sky de 6 paradas cada una.
@@ -90,8 +99,8 @@ describe("wipe 2d", () => {
     expect(stops.some(([, c]) => c?.includes("224,242,254") ?? false)).toBe(
       true,
     );
-    // Superficie (blanca) + rebanadas + grano.
-    expect(fills.length).toBeGreaterThan(64);
-    expect(ctx.fillRect).not.toHaveBeenCalledTimes(0);
+    // Solo las 64 rebanadas (sin superficie) y cero grano suelto.
+    expect(fills.length).toBe(64);
+    expect(ctx.fillRect).not.toHaveBeenCalled();
   });
 });

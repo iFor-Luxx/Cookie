@@ -42,44 +42,45 @@
   }
 }
 
-/* Transiciones entre etapas (View Transitions API): la caja nueva
- * entra subiendo mientras la vieja se queda opaca debajo y solo se
- * retira al final — nunca hay dos semitransparentes a la vez, así no
- * se transparenta el fondo (sin destello blanco). Sin la API o con
- * movimiento reducido, el cambio es directo (ver transitionTo). */
-::view-transition-old(root),
-::view-transition-new(root) {
-  animation-duration: 0.32s;
-  animation-timing-function: ease-out;
-}
-::view-transition-old(root) {
-  animation-name: vt-out;
-}
-::view-transition-new(root) {
-  animation-name: vt-in;
-}
-@keyframes vt-out {
+/* Fundido local tipo nube para cambios dentro de una caja
+ * (sin View Transitions: no toca toda la página). Solo opacidad +
+ * blur, sin moverse. */
+@keyframes fade-in {
   from {
-    opacity: 1;
-    transform: translateY(0);
-  }
-  60% {
-    opacity: 1;
-    transform: translateY(-4px);
+    opacity: 0;
+    filter: blur(8px);
   }
   to {
-    opacity: 0;
-    transform: translateY(-10px);
+    opacity: 1;
+    filter: blur(0);
   }
+}
+
+/* Transiciones de pantalla completa (View Transitions API): solo
+ * fundido del snapshot nuevo sobre el viejo quieto, sin movimiento
+ * y sin mostrar el fondo (sin destello blanco). Sin la API o con
+ * movimiento reducido, el cambio es directo (ver transitionTo). */
+::view-transition {
+  background: var(--background);
+}
+::view-transition-group(root) {
+  animation: none;
+}
+::view-transition-old(root) {
+  animation: none;
+  opacity: 1;
+}
+::view-transition-new(root) {
+  animation: vt-in 0.45s ease-out both;
 }
 @keyframes vt-in {
   from {
     opacity: 0;
-    transform: translateY(14px);
+    filter: blur(8px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    filter: blur(0);
   }
 }
 @media (prefers-reduced-motion: reduce) {
