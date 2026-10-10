@@ -99,7 +99,7 @@ describe("drawing model v1", () => {
     expect(Math.abs(0.1234567 - firstPoint[0]) * 4096).toBeLessThan(0.5);
   });
 
-  it("pinceles por defecto cubren las 12 herramientas", () => {
+  it("pinceles por defecto cubren las 14 herramientas", () => {
     expect(Object.keys(DEFAULT_BRUSHES).sort()).toEqual([
       "2b",
       "2h",
@@ -112,7 +112,9 @@ describe("drawing model v1", () => {
       "pen",
       "pencil",
       "rotring",
+      "smudge",
       "spray",
+      "watercolor",
     ]);
   });
 });

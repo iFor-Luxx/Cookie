@@ -21,8 +21,46 @@ export const toolSchema = z.enum([
   "marker2",
   "charcoal",
   "hatch",
+  "watercolor",
+  "smudge",
 ]);
 export type ToolId = z.infer<typeof toolSchema>;
+
+/**
+ * Mapeo físico → ToolId (nombres congelados a petición: NO renombrar).
+ * Referencia de fidelidad analógica — cada receta del renderer imita el
+ * medio real, nunca un vector limpio:
+ *
+ * - gráfico (mina HB genérica) → `graphite`: polvo fino preciso, gris
+ *   medio, diente de papel visible, borra bien.
+ * - lápiz de color (cera) → `pencil`: capas translúcidas + burnish con
+ *   brillo a presión alta.
+ * - rotulador (punta bala) → `marker`: pleno jugoso por acumulación,
+ *   sangrado leve, gotas a presión fuerte.
+ * - 2B (blando) → `2b`: mancha gorda tenue en decrescendo, borde ahumado.
+ * - 2H (duro) → `2h`: hairline tenue SIEMPRE (alfa capada a 0.5), preciso,
+ *   sin temblor: la fidelidad aquí ES la precisión quirúrgica.
+ * - fibra (fineliner/fieltro) → `cpencil`: abanico de 6 micro-cerdas con
+ *   calvas secas, nunca motas.
+ * - pluma (estilográfica/stub) → `pen`: ancho por DIRECCIÓN (stub
+ *   horizontal), shading de tinta, hambre en subidas leves.
+ * - técnico (rotring/rapidógrafo) → `rotring`: ancho constante, ignora la
+ *   presión; la fidelidad es no variar nunca.
+ * - spray (aerógrafo) → `spray`: solo niebla (motas ~1/60 de la nube),
+ *   fade de gatillo en extremos, nube abierta por tilt.
+ * - bisel (marcador de cincel) → `marker2`: banda plana, ancho por
+ *   dirección NUNCA por presión, vetas secas del fieltro.
+ * - carboncillo (vine/comprimido) → `charcoal`: polvo amplio tenue a
+ *   toque leve, trozos densos negros a presión, lifts de goma.
+ * - sombreado técnico (hatching) → `hatch`: línea tenue + ticks
+ *   perpendiculares con algún cruzado.
+ * - acuarela → `watercolor`: charco translúcido + filo oscuro por pooling
+ *   + granulación + blooms de backrun.
+ * - difumino (tortillón, sin tinta) → `smudge`: NO añade pigmento,
+ *   arrastra el ya puesto: halo de lifts color papel + núcleo de tono
+ *   apagado a alfa baja + fibra longitudinal. Se pinta en orden de
+ *   trazos, por encima de lo que funde.
+ */
 
 /** Punto canónico: x, y (0..1), pressure (0..1), tilt (radianes, puede ser 0). */
 export const pointSchema = z.tuple([
@@ -121,18 +159,20 @@ export interface BrushConfig {
 }
 
 export const DEFAULT_BRUSHES: Record<ToolId, BrushConfig> = {
-  graphite: { tool: "graphite", color: "#333333", size: 3.2, opacity: 0.82 },
-  pencil: { tool: "pencil", color: "#2563eb", size: 4.5, opacity: 0.7 },
-  marker: { tool: "marker", color: "#111111", size: 12, opacity: 0.55 },
-  "2b": { tool: "2b", color: "#222222", size: 4.2, opacity: 0.9 },
-  "2h": { tool: "2h", color: "#444444", size: 2.2, opacity: 0.6 },
-  cpencil: { tool: "cpencil", color: "#059669", size: 5, opacity: 0.65 },
-  pen: { tool: "pen", color: "#111111", size: 2.6, opacity: 0.95 },
-  rotring: { tool: "rotring", color: "#111111", size: 3, opacity: 0.95 },
-  spray: { tool: "spray", color: "#333333", size: 14, opacity: 0.5 },
-  marker2: { tool: "marker2", color: "#1e40af", size: 12, opacity: 0.5 },
-  charcoal: { tool: "charcoal", color: "#1a1a1a", size: 9, opacity: 0.75 },
+  graphite: { tool: "graphite", color: "#333333", size: 4.2, opacity: 0.85 },
+  pencil: { tool: "pencil", color: "#2563eb", size: 6, opacity: 0.8 },
+  marker: { tool: "marker", color: "#111111", size: 13, opacity: 0.95 },
+  "2b": { tool: "2b", color: "#222222", size: 6.5, opacity: 0.85 },
+  "2h": { tool: "2h", color: "#555555", size: 2.6, opacity: 0.55 },
+  cpencil: { tool: "cpencil", color: "#059669", size: 5, opacity: 0.75 },
+  pen: { tool: "pen", color: "#111111", size: 3, opacity: 0.95 },
+  rotring: { tool: "rotring", color: "#111111", size: 2.2, opacity: 0.95 },
+  spray: { tool: "spray", color: "#333333", size: 18, opacity: 0.45 },
+  marker2: { tool: "marker2", color: "#1e40af", size: 11, opacity: 0.9 },
+  charcoal: { tool: "charcoal", color: "#1a1a1a", size: 12, opacity: 0.8 },
   hatch: { tool: "hatch", color: "#333333", size: 3, opacity: 0.8 },
+  watercolor: { tool: "watercolor", color: "#1d4ed8", size: 14, opacity: 0.5 },
+  smudge: { tool: "smudge", color: "#555555", size: 14, opacity: 0.55 },
 };
 
 /** Muestra de puntero normalizada que entra al engine. */

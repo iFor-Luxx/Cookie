@@ -18,6 +18,9 @@ import org.json.JSONObject
  * Puerto fiel de packages/drawing/src/renderer.ts (misma semilla, mismo grano).
  * El widget NO usa la preview: dibuja el JSON del último dibujo a máxima
  * calidad en el tamaño real del widget, sin red ni DOM.
+ * Nota v10: aproximación de preview — el renderer web pasó a estipulado
+ * puro p5.brush en medios secos; aquí se conservan aproximaciones por
+ * segmentos+grano (suficiente a tamaño widget, sin romper ninguna tool).
  */
 object DrawingRenderer {
     /** Tope de bitmap para caber en el binder de RemoteViews (~460KiB ARGB_565). */
@@ -41,7 +44,7 @@ object DrawingRenderer {
         val canvasHeight = canvasObj?.optInt("height", side) ?: side
         val strokes = doc.optJSONArray("strokes") ?: return bmp
         for (i in 0 until strokes.length()) {
-            renderStroke(canvas, paint, canvasWidth, canvasHeight, side, strokes.optJSONObject(i) ?: continue)
+            renderStroke(canvas, paint, canvasWidth, canvasHeight, side, background, strokes.optJSONObject(i) ?: continue)
         }
         return bmp
     }
@@ -52,6 +55,7 @@ object DrawingRenderer {
         canvasWidth: Int,
         canvasHeight: Int,
         targetSide: Int,
+        background: String,
         stroke: JSONObject,
     ) {
         val points = stroke.optJSONArray("points") ?: return
@@ -148,6 +152,60 @@ object DrawingRenderer {
             return
         }
 
+        // watercolor: lavado translúcido con filo oscuro (preview del
+        // widget; aproximación con segment/stamp, sin primitivas nuevas).
+        if (tool == "watercolor") {
+            val washAlpha = min(1f, opacity)
+            val edge = darken(color, 0.6f)
+            val bent = applyWobble(pts, rand, 0.1)
+            val path = smoothedPath(bent)
+            for (pass in 0 until 3) {
+                for ((a, b) in path) {
+                    val w = (a.w + b.w) / 2f
+                    val jx = ((rand.next() - 0.5) * w * 0.12 * pass).toFloat()
+                    val jy = ((rand.next() - 0.5) * w * 0.12 * pass).toFloat()
+                    segment(
+                        canvas, paint,
+                        a.x + jx, a.y + jy, b.x + jx, b.y + jy,
+                        a.w * 1.6f, b.w * 1.6f, color, washAlpha * 0.12f,
+                    )
+                }
+            }
+            val dots = min(pts.size * 6, 200)
+            for (s in 0 until dots) {
+                val i = (rand.next() * pts.size).toInt()
+                val c = pts[i]
+                val ang = rand.next() * Math.PI * 2
+                val dist = (rand.next() + rand.next() + rand.next() - 1.5) / 1.5 * c.w * 0.5
+                stamp(
+                    canvas, paint,
+                    (c.x + cos(ang) * dist).toFloat(),
+                    (c.y + sin(ang) * dist).toFloat(),
+                    max(0.4f, (c.w * (0.15 + rand.next() * 0.25)).toFloat()),
+                    if (rand.next() < 0.12) darken(color, 0.7f) else color,
+                    (washAlpha * (0.15 + rand.next() * 0.2)).toFloat(),
+                )
+            }
+            for ((a, b) in path) {
+                val w = (a.w + b.w) / 2f
+                val dx = (b.x - a.x).toDouble()
+                val dy = (b.y - a.y).toDouble()
+                val len = hypot(dx, dy).let { if (it == 0.0) 1.0 else it }
+                val nx = (-dy / len).toFloat()
+                val ny = (dx / len).toFloat()
+                for (s in listOf(-0.45f, 0.45f)) {
+                    val tw = max(0.5f, w * 0.09f)
+                    segment(
+                        canvas, paint,
+                        a.x + nx * w * s, a.y + ny * w * s,
+                        b.x + nx * w * s, b.y + ny * w * s,
+                        tw, tw, edge, min(1f, washAlpha * 0.8f),
+                    )
+                }
+            }
+            return
+        }
+
         // hatch: línea tenue + ticks perpendiculares (sombreado técnico).
         if (tool == "hatch") {
             for ((a, b) in smoothedPath(applyWobble(pts, rand, 0.05))) {
@@ -172,6 +230,22 @@ object DrawingRenderer {
                         tw, tw, color, opacity * 0.7f,
                     )
                 }
+            }
+            return
+        }
+
+        // smudge: difumino (tortillón). Sin tinta: halo ancho color
+        // fondo que ablanda + arrastre del tono apagado a alfa baja.
+        if (tool == "smudge") {
+            val bent = applyWobble(pts, rand, 0.25)
+            val path = smoothedPath(bent)
+            for ((a, b) in path) {
+                segment(canvas, paint, a.x, a.y, b.x, b.y, a.w * 3.2f, b.w * 3.2f, background, opacity * 0.10f)
+                segment(canvas, paint, a.x, a.y, b.x, b.y, a.w * 2.0f, b.w * 2.0f, background, opacity * 0.14f)
+            }
+            val drag = darken(color, 0.85f)
+            for ((a, b) in path) {
+                segment(canvas, paint, a.x, a.y, b.x, b.y, a.w * 1.2f, b.w * 1.2f, drag, opacity * 0.25f)
             }
             return
         }
@@ -303,9 +377,10 @@ object DrawingRenderer {
             val dy = (next.y - prev.y).toDouble()
             val len = hypot(dx, dy).let { if (it == 0.0) 1.0 else it }
             val o = (rand.next() * 2 - 1) * amount * p.w
+            // Normal perpendicular (-dy, dx)/len.
             Px(
                 (p.x + (-dy / len) * o).toFloat(),
-                (p.y + (dy / len) * o).toFloat(),
+                (p.y + (dx / len) * o).toFloat(),
                 p.w,
             )
         }
@@ -408,6 +483,13 @@ object DrawingRenderer {
     private fun applyColor(paint: Paint, hex: String, alpha: Float) {
         paint.color = safeColor(hex)
         paint.alpha = (alpha.coerceIn(0f, 1f) * 255f).roundToInt()
+    }
+
+    /** Oscurece un `#rrggbb` por factor (filos de dos tonos). */
+    private fun darken(hex: String, f: Float): String {
+        val n = hex.removePrefix("#").toLongOrNull(16) ?: return hex
+        val ch = { s: Int -> (((n shr s) and 255) * f).toInt().coerceIn(0, 255) }
+        return "#%02x%02x%02x".format(ch(16), ch(8), ch(0))
     }
 
     private fun safeColor(hex: String): Int =

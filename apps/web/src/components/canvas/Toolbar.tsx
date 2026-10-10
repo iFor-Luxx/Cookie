@@ -1,6 +1,8 @@
 import type { BrushConfig, ToolId } from "@cookie/drawing";
 import {
   Brush,
+  Droplet,
+  Eraser,
   Feather,
   Highlighter,
   Paintbrush,
@@ -37,8 +39,10 @@ const TOOLS: Array<{ id: ToolId; label: string; icon: typeof Pencil }> = [
   { id: "rotring", label: "Técnico", icon: PenTool },
   { id: "spray", label: "Spray", icon: SprayCan },
   { id: "marker2", label: "Bisel", icon: Slash },
+  { id: "watercolor", label: "Acuarela", icon: Droplet },
   { id: "charcoal", label: "Carboncillo", icon: Feather },
   { id: "hatch", label: "Sombreado", icon: Ruler },
+  { id: "smudge", label: "Difumino", icon: Eraser },
 ];
 
 const COLORS = [

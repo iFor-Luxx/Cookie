@@ -126,12 +126,20 @@ export function CanvasBoard({
 
     const toSample = (e: PointerEvent): PointerSample => {
       const r = base.getBoundingClientRect();
+      // Tilt del stylus 0..1 (0 = perpendicular). Ratón = 0.
+      const tilt =
+        e.pointerType === "mouse"
+          ? 0
+          : Math.min(
+              1,
+              Math.max(Math.abs(e.tiltX ?? 0), Math.abs(e.tiltY ?? 0)) / 60,
+            );
       return {
         x: (e.clientX - r.left) / r.width,
         y: (e.clientY - r.top) / r.height,
         pressure:
           e.pointerType === "mouse" ? 0.6 : e.pressure > 0 ? e.pressure : 0.5,
-        tilt: 0,
+        tilt,
       };
     };
 
