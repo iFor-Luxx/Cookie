@@ -2,6 +2,7 @@ import {
   type BrushConfig,
   canvas2dTarget,
   type DrawingEngine,
+  type PointerSample,
   parseDocument,
   renderDocument,
   renderStroke,
@@ -9,7 +10,6 @@ import {
 } from "@cookie/drawing";
 import type { DraftStore } from "@cookie/platform-web";
 import { useEffect, useRef } from "react";
-import { attachPointerInput } from "./pointer-input";
 
 const DOC_SIZE = 1024;
 const AUTOSAVE_DEBOUNCE_MS = 800;
@@ -42,6 +42,7 @@ export function CanvasBoard({
   brushRef.current = brush;
   const callbacksRef = useRef({ onSaveState, onStrokesVersion });
   callbacksRef.current = { onSaveState, onStrokesVersion };
+  const drawingRef = useRef(false);
   const saveTimer = useRef<number | null>(null);
 
   useEffect(() => {
@@ -123,18 +124,60 @@ export function CanvasBoard({
       }
     });
 
-    const detachPointer = attachPointerInput(
-      wrap,
-      engine,
-      () => brushRef.current,
-      base,
-    );
+    const toSample = (e: PointerEvent): PointerSample => {
+      const r = base.getBoundingClientRect();
+      return {
+        x: (e.clientX - r.left) / r.width,
+        y: (e.clientY - r.top) / r.height,
+        pressure:
+          e.pointerType === "mouse" ? 0.6 : e.pressure > 0 ? e.pressure : 0.5,
+        tilt: 0,
+      };
+    };
+
+    const onPointerDown = (e: PointerEvent): void => {
+      if (e.button !== 0 && e.pointerType === "mouse") return;
+      e.preventDefault();
+      wrap.setPointerCapture(e.pointerId);
+      drawingRef.current = true;
+      engine.beginStroke(toSample(e), brushRef.current);
+    };
+    const onPointerMove = (e: PointerEvent): void => {
+      if (!drawingRef.current) return;
+      e.preventDefault();
+      // getCoalescedEvents() puede venir VACÍA (sin nada que coalescer):
+      // el evento actual siempre cuenta, o el trazo queda en un punto.
+      // Duplicados exactos consecutivos los filtra el engine.
+      const coalesced =
+        typeof e.getCoalescedEvents === "function"
+          ? e.getCoalescedEvents()
+          : [];
+      engine.appendSamples([...coalesced.map(toSample), toSample(e)]);
+    };
+    const endStroke = (e: PointerEvent): void => {
+      if (!drawingRef.current) return;
+      drawingRef.current = false;
+      try {
+        wrap.releasePointerCapture(e.pointerId);
+      } catch {
+        // Sin captura activa: nada que liberar.
+      }
+      engine.endStroke();
+    };
+
+    wrap.addEventListener("pointerdown", onPointerDown);
+    wrap.addEventListener("pointermove", onPointerMove);
+    wrap.addEventListener("pointerup", endStroke);
+    wrap.addEventListener("pointercancel", endStroke);
 
     return () => {
       cancelled = true;
       unsubscribe();
-      detachPointer();
       if (saveTimer.current !== null) window.clearTimeout(saveTimer.current);
+      wrap.removeEventListener("pointerdown", onPointerDown);
+      wrap.removeEventListener("pointermove", onPointerMove);
+      wrap.removeEventListener("pointerup", endStroke);
+      wrap.removeEventListener("pointercancel", endStroke);
     };
     // engine/draftStore/draftId estables por sesión; brush y callbacks via ref.
   }, [engine, draftStore, draftId]);

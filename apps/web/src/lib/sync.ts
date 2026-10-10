@@ -1,11 +1,6 @@
 // H5 web — motor de sync (outbox durable) + realtime (WS con polling fallback).
 
-import {
-  canvas2dTarget,
-  parseDocument,
-  renderDocument,
-  type VersionedDrawingDocument,
-} from "@cookie/drawing";
+import { canvas2dTarget, renderDocument } from "@cookie/drawing";
 import { indexedDbBackend } from "@cookie/platform-web";
 import {
   backoffMs,
@@ -17,105 +12,8 @@ import {
   TransportError,
 } from "@cookie/sync";
 import { ApiError, api } from "./api";
-import {
-  glTopLeftMapper,
-  p5ScaleForBacking,
-  registerCookieBrushes,
-  renderDocumentP5,
-  supportsWebGL2,
-} from "./p5brush";
 
 const PREVIEW_BUDGET_BYTES = 16 * 1024;
-
-/** Miniatura dentro del presupuesto: pinta cada intento y codifica WebP. */
-async function encodeWithinBudget(
-  paint: (size: number) => Promise<HTMLCanvasElement> | HTMLCanvasElement,
-): Promise<{ bytes: Uint8Array; contentType: string }> {
-  // Thumbnail para Historia únicamente: encajar en un presupuesto fijo para
-  // que el historial crezca sin coste (R2 10GB, historial intocable).
-  const attempts: ReadonlyArray<readonly [number, number]> = [
-    [256, 0.6],
-    [256, 0.45],
-    [256, 0.32],
-    [192, 0.45],
-    [128, 0.45],
-  ];
-  let last: { bytes: Uint8Array; contentType: string } | null = null;
-  for (const [size, quality] of attempts) {
-    const canvas = await paint(size);
-    const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob(resolve, "image/webp", quality),
-    );
-    if (!blob) throw new TransportError("Sin preview", false);
-    const type = blob.type === "image/webp" ? "image/webp" : "image/png";
-    last = {
-      bytes: new Uint8Array(await blob.arrayBuffer()),
-      contentType: type,
-    };
-    if (last.bytes.length <= PREVIEW_BUDGET_BYTES) break;
-  }
-  if (!last) throw new TransportError("Sin preview", false);
-  return last;
-}
-
-function paintPreview2d(
-  doc: VersionedDrawingDocument,
-  size: number,
-): HTMLCanvasElement {
-  const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new TransportError("Sin contexto 2d", false);
-  renderDocument(canvas2dTarget(ctx, size, size), doc);
-  return canvas;
-}
-
-/**
- * Miniatura con textura real (p5.brush, WebGL2). El canvas GL se vuelca a 2D
- * en la misma tarea (readback válido sin preserveDrawingBuffer).
- */
-async function paintPreviewP5(
-  doc: VersionedDrawingDocument,
-  size: number,
-): Promise<HTMLCanvasElement> {
-  const brush = await import("p5.brush/standalone");
-  const gl = document.createElement("canvas");
-  gl.width = size;
-  gl.height = size;
-  brush.load(gl);
-  try {
-    // Orden estricto: register (copias frescas) y UN solo scale por dibujo.
-    registerCookieBrushes(brush);
-    const scale = p5ScaleForBacking(size);
-    brush.scaleBrushes(scale);
-    const docW = doc.canvas.width || 1024;
-    const k = size / docW;
-    const toPx = glTopLeftMapper(size);
-    renderDocumentP5(
-      brush,
-      {
-        canvas: doc.canvas,
-        strokes: doc.strokes.map((s) => ({ ...s, size: s.size * k })),
-      },
-      toPx,
-      scale,
-    );
-  } finally {
-    try {
-      brush.load();
-    } catch {
-      // Sin canvas principal: ignorar.
-    }
-  }
-  const out = document.createElement("canvas");
-  out.width = size;
-  out.height = size;
-  const ctx = out.getContext("2d");
-  if (!ctx) throw new TransportError("Sin contexto 2d", false);
-  ctx.drawImage(gl, 0, 0);
-  return out;
-}
 
 function toTransportError(e: unknown): TransportError {
   if (e instanceof ApiError) {
@@ -180,15 +78,37 @@ const transport: PublishTransport = {
     }
   },
   renderPreview: async (docJson) => {
-    const doc = parseDocument(JSON.parse(docJson));
-    if (supportsWebGL2()) {
-      try {
-        return await encodeWithinBudget((size) => paintPreviewP5(doc, size));
-      } catch {
-        // Caída al renderer 2D (miniatura plana pero válida).
-      }
+    const doc = JSON.parse(docJson) as Parameters<typeof renderDocument>[1];
+    // Thumbnail para Historia únicamente: encajar en un presupuesto fijo para
+    // que el historial crezca sin coste (R2 10GB, historial intocable).
+    const attempts: ReadonlyArray<readonly [number, number]> = [
+      [256, 0.6],
+      [256, 0.45],
+      [256, 0.32],
+      [192, 0.45],
+      [128, 0.45],
+    ];
+    let last: { bytes: Uint8Array; contentType: string } | null = null;
+    for (const [size, quality] of attempts) {
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new TransportError("Sin contexto 2d", false);
+      renderDocument(canvas2dTarget(ctx, size, size), doc);
+      const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, "image/webp", quality),
+      );
+      if (!blob) throw new TransportError("Sin preview", false);
+      const type = blob.type === "image/webp" ? "image/webp" : "image/png";
+      last = {
+        bytes: new Uint8Array(await blob.arrayBuffer()),
+        contentType: type,
+      };
+      if (last.bytes.length <= PREVIEW_BUDGET_BYTES) break;
     }
-    return encodeWithinBudget((size) => paintPreview2d(doc, size));
+    if (!last) throw new TransportError("Sin preview", false);
+    return last;
   },
   sha256Hex,
 };

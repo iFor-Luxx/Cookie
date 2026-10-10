@@ -10,7 +10,6 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sin
-import kotlin.math.sqrt
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -66,17 +65,37 @@ object DrawingRenderer {
         val rand = Mulberry32(seed)
 
         if (tool == "marker") {
-            for ((a, b) in smoothedPath(pts)) {
+            val path = smoothedPath(applyWobble(pts, rand, 0.02))
+            for ((a, b) in path) {
                 segment(canvas, paint, a.x, a.y, b.x, b.y, a.w, b.w, color, opacity)
+            }
+            // Bordes secos: motas en la banda exterior, alfa tenue.
+            val edges = min(pts.size * 3, 180)
+            for (s in 0 until edges) {
+                val i = (rand.next() * pts.size).toInt()
+                val c = pts[i]
+                val ang = rand.next() * Math.PI * 2
+                val dist = c.w * (0.3 + rand.next() * 0.4)
+                stamp(
+                    canvas, paint,
+                    (c.x + cos(ang) * dist).toFloat(),
+                    (c.y + sin(ang) * dist).toFloat(),
+                    max(0.3f, c.w * 0.09f),
+                    color, opacity * 0.22f,
+                )
             }
             return
         }
 
-        // pen: tinta sólida uniforme (sin taper ni grano).
+        // pen: tinta sólida uniforme (sin taper ni grano), extremos suaves.
         if (tool == "pen") {
-            for ((a, b) in smoothedPath(pts)) {
+            val path = smoothedPath(applyWobble(pts, rand, 0.03))
+            for (i in path.indices) {
+                val (a, b) = path[i]
                 val w = (a.w + b.w) / 2f
-                segment(canvas, paint, a.x, a.y, b.x, b.y, w, w, color, opacity)
+                val w0 = if (i == 0) w * 0.55f else w
+                val w1 = if (i == path.size - 1) w * 0.55f else w
+                segment(canvas, paint, a.x, a.y, b.x, b.y, w0, w1, color, opacity)
             }
             return
         }
@@ -88,20 +107,22 @@ object DrawingRenderer {
             return
         }
 
-        // spray: solo sellos dispersos en disco (sin cuerpo).
+        // spray: nube con caída central (sin cuerpo).
         if (tool == "spray") {
-            val stamps = min(pts.size * 6, 360)
+            val stamps = min(pts.size * 12, 600)
             for (s in 0 until stamps) {
                 val i = (rand.next() * pts.size).toInt()
                 val c = pts[i]
                 val ang = rand.next() * Math.PI * 2
-                val dist = sqrt(rand.next()) * c.w * 1.2
+                // r1*r2 concentra al centro; cada 8ª mota es salpicadura.
+                val dist = c.w * 1.5 * rand.next() * rand.next()
+                val blob = if (s % 8 == 0) 2.5 else 1.0
                 stamp(
                     canvas,
                     paint,
                     (c.x + cos(ang) * dist).toFloat(),
                     (c.y + sin(ang) * dist).toFloat(),
-                    max(0.4f, c.w * (0.06 + rand.next() * 0.12).toFloat()),
+                    max(0.4f, (c.w * (0.15 + rand.next() * 0.3) * blob).toFloat()),
                     color,
                     (opacity * (0.1 + rand.next() * 0.3)).toFloat(),
                 )
@@ -109,9 +130,10 @@ object DrawingRenderer {
             return
         }
 
-        // marker2: bisel translúcido (dos pasadas anchas con jitter lateral).
+        // marker2: bisel en 3 capas translúcidas con jitter lateral (cerdas).
         if (tool == "marker2") {
-            for (p in 0 until 2) {
+            val layers = listOf(1.0f, 0.85f, 0.7f)
+            for (f in layers) {
                 for ((a, b) in smoothedPath(pts)) {
                     val j = ((a.w + b.w) / 2f) * 0.3f
                     val jx = ((rand.next() - 0.5) * j).toFloat()
@@ -119,7 +141,7 @@ object DrawingRenderer {
                     segment(
                         canvas, paint,
                         a.x + jx, a.y + jy, b.x + jx, b.y + jy,
-                        a.w, b.w, color, opacity * 0.45f,
+                        a.w * f, b.w * f, color, opacity * 0.4f,
                     )
                 }
             }
@@ -128,14 +150,15 @@ object DrawingRenderer {
 
         // hatch: línea tenue + ticks perpendiculares (sombreado técnico).
         if (tool == "hatch") {
-            for ((a, b) in smoothedPath(pts)) {
+            for ((a, b) in smoothedPath(applyWobble(pts, rand, 0.05))) {
                 segment(canvas, paint, a.x, a.y, b.x, b.y, a.w * 0.5f, b.w * 0.5f, color, opacity * 0.35f)
                 val w = (a.w + b.w) / 2f
                 val dx = (b.x - a.x).toDouble()
                 val dy = (b.y - a.y).toDouble()
                 val len = hypot(dx, dy).let { if (it == 0.0) 1.0 else it }
-                val nx = -dy / len
-                val ny = dx / len
+                val tilt = (rand.next() - 0.5) * 0.4
+                val nx = -dy / len * cos(tilt) - dx / len * sin(tilt)
+                val ny = -dy / len * sin(tilt) + dx / len * cos(tilt)
                 for (k in 0 until 2) {
                     val t = rand.next()
                     val cx = (a.x + dx * t + (rand.next() - 0.5) * w * 0.4).toFloat()
@@ -156,22 +179,31 @@ object DrawingRenderer {
         // Familia de grano (graphite, pencil, 2b, 2h, cpencil, charcoal).
         // Desconocido → grafito (compatibilidad hacia adelante).
         val p = grainParamsFor(tool)
+        val wpts = applyWobble(pts, rand, p.wobble)
+        val path = smoothedPath(wpts)
+        if (p.haloWidth > 0f) {
+            for ((a, b) in path) {
+                segment(canvas, paint, a.x, a.y, b.x, b.y, a.w * p.haloWidth, b.w * p.haloWidth, color, opacity * p.haloAlpha)
+            }
+        }
         for (pass in 0 until p.passes) {
-            for ((a, b) in smoothedPath(pts)) {
+            for ((a, b) in path) {
                 val pressureScale = 0.35f + 0.65f * ((a.w + b.w) / 2f / max(size, 0.5f))
                 val alpha = alphaFor(opacity, pressureScale) * p.alphaFactor
                 segment(canvas, paint, a.x, a.y, b.x, b.y, a.w * p.widthFactor, b.w * p.widthFactor, color, alpha)
             }
-            // Grano determinista dentro de la banda del trazo (mismo orden de
-            // llamadas a rand() que renderer.ts para que coincida byte a byte).
-            val grains = min(pts.size * p.grainPerPoint, p.grainCap)
+            // Grano: mismo orden que renderer.ts (i, ángulo, distancia,
+            // jitter, descarte, alfa).
+            val grains = min(wpts.size * p.grainPerPoint, p.grainCap)
             for (g in 0 until grains) {
-                val i = (rand.next() * pts.size).toInt()
-                val c = pts[i]
+                val i = (rand.next() * wpts.size).toInt()
+                val c = wpts[i]
                 val ang = rand.next() * Math.PI * 2
                 val dist = rand.next() * c.w * p.spread
                 val jitter = p.jitterMin + rand.next() * p.jitterSpan
+                val skip = rand.next() < p.drySkip
                 val alpha = p.grainAlphaMin + rand.next() * p.grainAlphaSpan
+                if (skip) continue
                 stamp(
                     canvas,
                     paint,
@@ -197,51 +229,87 @@ object DrawingRenderer {
         val grainAlphaMin: Double,
         val grainAlphaSpan: Double,
         val radiusFactor: Double,
+        val wobble: Double,
+        val haloWidth: Float,
+        val haloAlpha: Float,
+        val drySkip: Double,
     )
 
     private val GRAPHITE_PARAMS = GrainParams(
         passes = 1, widthFactor = 0.9f, alphaFactor = 0.9f,
         grainPerPoint = 3, grainCap = 240, spread = 0.45,
         jitterMin = 0.4, jitterSpan = 0.9,
-        grainAlphaMin = 0.16, grainAlphaSpan = 0.22, radiusFactor = 0.08,
+        grainAlphaMin = 0.16, grainAlphaSpan = 0.22, radiusFactor = 0.14,
+        wobble = 0.08, haloWidth = 0f, haloAlpha = 0f, drySkip = 0.0,
     )
 
     private val GRAIN_TOOLS: Map<String, GrainParams> = mapOf(
         "graphite" to GRAPHITE_PARAMS,
         "pencil" to GrainParams(
-            passes = 2, widthFactor = 0.9f, alphaFactor = 0.55f,
+            passes = 2, widthFactor = 0.9f, alphaFactor = 0.5f,
             grainPerPoint = 3, grainCap = 240, spread = 0.45,
-            jitterMin = 0.5, jitterSpan = 1.4,
-            grainAlphaMin = 0.16, grainAlphaSpan = 0.22, radiusFactor = 0.08,
+            jitterMin = 0.5, jitterSpan = 2.0,
+            grainAlphaMin = 0.16, grainAlphaSpan = 0.22, radiusFactor = 0.12,
+            wobble = 0.14, haloWidth = 0f, haloAlpha = 0f, drySkip = 0.0,
         ),
         "2b" to GrainParams(
-            passes = 1, widthFactor = 1.0f, alphaFactor = 1.0f,
+            passes = 1, widthFactor = 1.0f, alphaFactor = 0.95f,
             grainPerPoint = 5, grainCap = 320, spread = 0.55,
             jitterMin = 0.5, jitterSpan = 1.2,
-            grainAlphaMin = 0.2, grainAlphaSpan = 0.25, radiusFactor = 0.1,
+            grainAlphaMin = 0.2, grainAlphaSpan = 0.25, radiusFactor = 0.16,
+            wobble = 0.12, haloWidth = 2.0f, haloAlpha = 0.2f, drySkip = 0.0,
         ),
         "2h" to GrainParams(
             passes = 1, widthFactor = 0.7f, alphaFactor = 0.55f,
             grainPerPoint = 1, grainCap = 60, spread = 0.35,
             jitterMin = 0.3, jitterSpan = 0.5,
-            grainAlphaMin = 0.12, grainAlphaSpan = 0.15, radiusFactor = 0.06,
+            grainAlphaMin = 0.12, grainAlphaSpan = 0.15, radiusFactor = 0.08,
+            wobble = 0.02, haloWidth = 0f, haloAlpha = 0f, drySkip = 0.0,
         ),
         "cpencil" to GrainParams(
             passes = 2, widthFactor = 0.95f, alphaFactor = 0.7f,
-            grainPerPoint = 4, grainCap = 280, spread = 0.5,
-            jitterMin = 0.8, jitterSpan = 1.8,
-            grainAlphaMin = 0.14, grainAlphaSpan = 0.2, radiusFactor = 0.12,
+            grainPerPoint = 4, grainCap = 280, spread = 0.6,
+            jitterMin = 0.8, jitterSpan = 2.2,
+            grainAlphaMin = 0.14, grainAlphaSpan = 0.2, radiusFactor = 0.18,
+            wobble = 0.14, haloWidth = 0f, haloAlpha = 0f, drySkip = 0.1,
         ),
         "charcoal" to GrainParams(
-            passes = 1, widthFactor = 1.1f, alphaFactor = 0.8f,
-            grainPerPoint = 6, grainCap = 400, spread = 0.6,
+            passes = 1, widthFactor = 1.1f, alphaFactor = 0.9f,
+            grainPerPoint = 6, grainCap = 400, spread = 0.8,
             jitterMin = 0.6, jitterSpan = 1.6,
-            grainAlphaMin = 0.12, grainAlphaSpan = 0.25, radiusFactor = 0.1,
+            grainAlphaMin = 0.12, grainAlphaSpan = 0.25, radiusFactor = 0.18,
+            wobble = 0.18, haloWidth = 2.8f, haloAlpha = 0.22f, drySkip = 0.15,
         ),
     )
 
     private fun grainParamsFor(tool: String): GrainParams =
         GRAIN_TOOLS[tool] ?: GRAPHITE_PARAMS
+
+    /**
+     * Temblor de mano: mismo orden y fórmula que renderer.ts (1 llamada
+     * por punto interior, extremos anclados).
+     */
+    private fun applyWobble(
+        pts: List<Px>,
+        rand: Mulberry32,
+        amount: Double,
+    ): List<Px> {
+        if (amount <= 0.0 || pts.size < 3) return pts
+        return pts.mapIndexed { i, p ->
+            if (i == 0 || i == pts.size - 1) return@mapIndexed p
+            val prev = pts[i - 1]
+            val next = pts[i + 1]
+            val dx = (next.x - prev.x).toDouble()
+            val dy = (next.y - prev.y).toDouble()
+            val len = hypot(dx, dy).let { if (it == 0.0) 1.0 else it }
+            val o = (rand.next() * 2 - 1) * amount * p.w
+            Px(
+                (p.x + (-dy / len) * o).toFloat(),
+                (p.y + (dy / len) * o).toFloat(),
+                p.w,
+            )
+        }
+    }
 
     private class Px(val x: Float, val y: Float, val w: Float)
 

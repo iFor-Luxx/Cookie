@@ -111,6 +111,13 @@ interface GrainParams {
   readonly grainAlphaMin: number;
   readonly grainAlphaSpan: number;
   readonly radiusFactor: number;
+  /** Temblor de mano: fracción de w como offset perpendicular (0 = rígido). */
+  readonly wobble: number;
+  /** Polvo previo: 0 = sin halo; si >0, pasada ancha tenue de ancho ×w. */
+  readonly haloWidth: number;
+  readonly haloAlpha: number;
+  /** Trazo seco: probabilidad de saltar cada grano (parches). */
+  readonly drySkip: number;
 }
 
 const GRAPHITE_PARAMS: GrainParams = {
@@ -124,7 +131,11 @@ const GRAPHITE_PARAMS: GrainParams = {
   jitterSpan: 0.9,
   grainAlphaMin: 0.16,
   grainAlphaSpan: 0.22,
-  radiusFactor: 0.08,
+  radiusFactor: 0.14,
+  wobble: 0.08,
+  haloWidth: 0,
+  haloAlpha: 0,
+  drySkip: 0,
 };
 
 const GRAIN_TOOLS: Record<string, GrainParams> = {
@@ -132,20 +143,24 @@ const GRAIN_TOOLS: Record<string, GrainParams> = {
   pencil: {
     passes: 2,
     widthFactor: 0.9,
-    alphaFactor: 0.55,
+    alphaFactor: 0.5,
     grainPerPoint: 3,
     grainCap: 240,
     spread: 0.45,
     jitterMin: 0.5,
-    jitterSpan: 1.4,
+    jitterSpan: 2.0,
     grainAlphaMin: 0.16,
     grainAlphaSpan: 0.22,
-    radiusFactor: 0.08,
+    radiusFactor: 0.12,
+    wobble: 0.14,
+    haloWidth: 0,
+    haloAlpha: 0,
+    drySkip: 0,
   },
   "2b": {
     passes: 1,
     widthFactor: 1.0,
-    alphaFactor: 1.0,
+    alphaFactor: 0.95,
     grainPerPoint: 5,
     grainCap: 320,
     spread: 0.55,
@@ -153,7 +168,11 @@ const GRAIN_TOOLS: Record<string, GrainParams> = {
     jitterSpan: 1.2,
     grainAlphaMin: 0.2,
     grainAlphaSpan: 0.25,
-    radiusFactor: 0.1,
+    radiusFactor: 0.16,
+    wobble: 0.12,
+    haloWidth: 2.0,
+    haloAlpha: 0.2,
+    drySkip: 0,
   },
   "2h": {
     passes: 1,
@@ -166,7 +185,11 @@ const GRAIN_TOOLS: Record<string, GrainParams> = {
     jitterSpan: 0.5,
     grainAlphaMin: 0.12,
     grainAlphaSpan: 0.15,
-    radiusFactor: 0.06,
+    radiusFactor: 0.08,
+    wobble: 0.02,
+    haloWidth: 0,
+    haloAlpha: 0,
+    drySkip: 0,
   },
   cpencil: {
     passes: 2,
@@ -174,30 +197,61 @@ const GRAIN_TOOLS: Record<string, GrainParams> = {
     alphaFactor: 0.7,
     grainPerPoint: 4,
     grainCap: 280,
-    spread: 0.5,
+    spread: 0.6,
     jitterMin: 0.8,
-    jitterSpan: 1.8,
+    jitterSpan: 2.2,
     grainAlphaMin: 0.14,
     grainAlphaSpan: 0.2,
-    radiusFactor: 0.12,
+    radiusFactor: 0.18,
+    wobble: 0.14,
+    haloWidth: 0,
+    haloAlpha: 0,
+    drySkip: 0.1,
   },
   charcoal: {
     passes: 1,
     widthFactor: 1.1,
-    alphaFactor: 0.8,
+    alphaFactor: 0.9,
     grainPerPoint: 6,
     grainCap: 400,
-    spread: 0.6,
+    spread: 0.8,
     jitterMin: 0.6,
     jitterSpan: 1.6,
     grainAlphaMin: 0.12,
     grainAlphaSpan: 0.25,
-    radiusFactor: 0.1,
+    radiusFactor: 0.18,
+    wobble: 0.18,
+    haloWidth: 2.8,
+    haloAlpha: 0.22,
+    drySkip: 0.15,
   },
 };
 
 function grainParamsFor(tool: string): GrainParams {
   return GRAIN_TOOLS[tool] ?? GRAPHITE_PARAMS;
+}
+
+/**
+ * Temblor de mano: desplaza cada punto interior en perpendicular con la
+ * semilla del trazo (1 llamada por punto, extremos anclados donde tocaste).
+ */
+function applyWobble(pts: Px[], rand: () => number, amount: number): Px[] {
+  if (amount <= 0 || pts.length < 3) return pts;
+  return pts.map((p, i) => {
+    if (i === 0 || i === pts.length - 1) return p;
+    const prev = pts[i - 1];
+    const next = pts[i + 1];
+    if (!prev || !next) return p;
+    const dx = next.x - prev.x;
+    const dy = next.y - prev.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const o = (rand() * 2 - 1) * amount * p.w;
+    return {
+      x: p.x + (-dy / len) * o,
+      y: p.y + (dy / len) * o,
+      w: p.w,
+    };
+  });
 }
 
 export function renderStroke(
@@ -218,7 +272,8 @@ export function renderStroke(
   const rand = mulberry32(stroke.seed);
 
   if (stroke.tool === "marker") {
-    for (const [a, b] of smoothedPath(pts)) {
+    const path = smoothedPath(applyWobble(pts, rand, 0.02));
+    for (const [a, b] of path) {
       target.segment(
         a.x,
         a.y,
@@ -230,14 +285,36 @@ export function renderStroke(
         stroke.opacity,
       );
     }
+    // Bordes secos: motas en la banda exterior, alfa tenue.
+    const edges = Math.min(pts.length * 3, 180);
+    for (let s = 0; s < edges; s++) {
+      const i = Math.floor(rand() * pts.length);
+      const c = pts[i];
+      if (!c) continue;
+      const ang = rand() * Math.PI * 2;
+      const dist = c.w * (0.3 + rand() * 0.4);
+      target.stamp(
+        c.x + Math.cos(ang) * dist,
+        c.y + Math.sin(ang) * dist,
+        Math.max(0.3, c.w * 0.09),
+        stroke.color,
+        stroke.opacity * 0.22,
+      );
+    }
     return;
   }
 
-  // pen: tinta sólida uniforme (sin taper por presión ni grano).
+  // pen: tinta sólida uniforme (sin taper por presión ni grano), extremos suaves.
   if (stroke.tool === "pen") {
-    for (const [a, b] of smoothedPath(pts)) {
+    const path = smoothedPath(applyWobble(pts, rand, 0.03));
+    for (let i = 0; i < path.length; i++) {
+      const seg = path[i];
+      if (!seg) continue;
+      const [a, b] = seg;
       const w = (a.w + b.w) / 2;
-      target.segment(a.x, a.y, b.x, b.y, w, w, stroke.color, stroke.opacity);
+      const w0 = i === 0 ? w * 0.55 : w;
+      const w1 = i === path.length - 1 ? w * 0.55 : w;
+      target.segment(a.x, a.y, b.x, b.y, w0, w1, stroke.color, stroke.opacity);
     }
     return;
   }
@@ -258,19 +335,21 @@ export function renderStroke(
     return;
   }
 
-  // spray: solo sellos dispersos en disco (sin cuerpo). Densidad ∝ trazo.
+  // spray: nube con caída central (sin cuerpo). Densidad ∝ trazo.
   if (stroke.tool === "spray") {
-    const stamps = Math.min(pts.length * 6, 360);
+    const stamps = Math.min(pts.length * 12, 600);
     for (let s = 0; s < stamps; s++) {
       const i = Math.floor(rand() * pts.length);
       const c = pts[i];
       if (!c) continue;
       const ang = rand() * Math.PI * 2;
-      const dist = Math.sqrt(rand()) * c.w * 1.2;
+      // r1*r2 concentra al centro; cada 8ª mota es salpicadura grande.
+      const dist = c.w * 1.5 * rand() * rand();
+      const blob = s % 8 === 0 ? 2.5 : 1;
       target.stamp(
         c.x + Math.cos(ang) * dist,
         c.y + Math.sin(ang) * dist,
-        Math.max(0.4, c.w * (0.06 + rand() * 0.12)),
+        Math.max(0.4, c.w * (0.15 + rand() * 0.3) * blob),
         stroke.color,
         stroke.opacity * (0.1 + rand() * 0.3),
       );
@@ -278,9 +357,10 @@ export function renderStroke(
     return;
   }
 
-  // marker2: bisel translúcido (dos pasadas anchas con jitter lateral).
+  // marker2: bisel en 3 capas translúcidas con jitter lateral (cerdas).
   if (stroke.tool === "marker2") {
-    for (let p = 0; p < 2; p++) {
+    const layers = [1.0, 0.85, 0.7];
+    for (const f of layers) {
       for (const [a, b] of smoothedPath(pts)) {
         const j = ((a.w + b.w) / 2) * 0.3;
         const jx = (rand() - 0.5) * j;
@@ -290,10 +370,10 @@ export function renderStroke(
           a.y + jy,
           b.x + jx,
           b.y + jy,
-          a.w,
-          b.w,
+          a.w * f,
+          b.w * f,
           stroke.color,
-          stroke.opacity * 0.45,
+          stroke.opacity * 0.4,
         );
       }
     }
@@ -302,7 +382,7 @@ export function renderStroke(
 
   // hatch: línea tenue + ticks perpendiculares (sombreado técnico).
   if (stroke.tool === "hatch") {
-    for (const [a, b] of smoothedPath(pts)) {
+    for (const [a, b] of smoothedPath(applyWobble(pts, rand, 0.05))) {
       target.segment(
         a.x,
         a.y,
@@ -317,8 +397,9 @@ export function renderStroke(
       const dx = b.x - a.x;
       const dy = b.y - a.y;
       const len = Math.hypot(dx, dy) || 1;
-      const nx = -dy / len;
-      const ny = dx / len;
+      const tilt = (rand() - 0.5) * 0.4;
+      const nx = (-dy / len) * Math.cos(tilt) - (dx / len) * Math.sin(tilt);
+      const ny = (-dy / len) * Math.sin(tilt) + (dx / len) * Math.cos(tilt);
       for (let k = 0; k < 2; k++) {
         const t = rand();
         const cx = a.x + dx * t + (rand() - 0.5) * w * 0.4;
@@ -343,8 +424,24 @@ export function renderStroke(
   // Familia de grano (graphite, pencil, 2b, 2h, cpencil, charcoal).
   // Desconocido → grafito (compatibilidad hacia adelante).
   const p = grainParamsFor(stroke.tool);
+  const wpts = applyWobble(pts, rand, p.wobble);
+  const path = smoothedPath(wpts);
+  if (p.haloWidth > 0) {
+    for (const [a, b] of path) {
+      target.segment(
+        a.x,
+        a.y,
+        b.x,
+        b.y,
+        a.w * p.haloWidth,
+        b.w * p.haloWidth,
+        stroke.color,
+        stroke.opacity * p.haloAlpha,
+      );
+    }
+  }
   for (let pass = 0; pass < p.passes; pass++) {
-    for (const [a, b] of smoothedPath(pts)) {
+    for (const [a, b] of path) {
       const pressureScale =
         0.35 + 0.65 * ((a.w + b.w) / 2 / Math.max(stroke.size, 0.5));
       target.segment(
@@ -359,20 +456,24 @@ export function renderStroke(
       );
     }
     // Grano: sellos pseudoaleatorios (seed) dentro de la banda del trazo.
-    const grains = Math.min(pts.length * p.grainPerPoint, p.grainCap);
+    // Orden fijo por grano: i, ángulo, distancia, jitter, descarte, alfa.
+    const grains = Math.min(wpts.length * p.grainPerPoint, p.grainCap);
     for (let g = 0; g < grains; g++) {
-      const i = Math.floor(rand() * pts.length);
-      const c = pts[i];
+      const i = Math.floor(rand() * wpts.length);
+      const c = wpts[i];
       if (!c) continue;
       const ang = rand() * Math.PI * 2;
       const dist = rand() * c.w * p.spread;
       const jr = p.jitterMin + rand() * p.jitterSpan;
+      const skip = rand() < p.drySkip;
+      const alpha = p.grainAlphaMin + rand() * p.grainAlphaSpan;
+      if (skip) continue;
       target.stamp(
         c.x + Math.cos(ang) * dist,
         c.y + Math.sin(ang) * dist,
         Math.max(0.4, c.w * p.radiusFactor * jr),
         stroke.color,
-        p.grainAlphaMin + rand() * p.grainAlphaSpan,
+        alpha,
       );
     }
   }

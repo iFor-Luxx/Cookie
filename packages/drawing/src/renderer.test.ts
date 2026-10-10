@@ -175,4 +175,48 @@ describe("renderer determinista", () => {
     );
     expect(hatch.log.some((l) => l.startsWith("stamp"))).toBe(false);
   });
+
+  it("las 12 herramientas producen secuencias distintas entre sí", () => {
+    const tools = [
+      "graphite",
+      "pencil",
+      "marker",
+      "2b",
+      "2h",
+      "cpencil",
+      "pen",
+      "rotring",
+      "spray",
+      "marker2",
+      "charcoal",
+      "hatch",
+    ] as const;
+    const logs = new Map<string, string>();
+    for (const tool of tools) {
+      const strokeDoc = parseDocument({
+        schemaVersion: 1,
+        canvas: { width: 256, height: 256, background: "#FFFFFF" },
+        strokes: [
+          {
+            id: "x",
+            tool,
+            color: "#333333",
+            size: 8,
+            opacity: 0.8,
+            seed: 1234,
+            points: [
+              [0.2, 0.3, 0.5, 0],
+              [0.5, 0.5, 0.9, 0],
+              [0.7, 0.4, 0.4, 0],
+            ],
+          },
+        ],
+      });
+      const t = recordingTarget(256, 256);
+      renderDocument(t, strokeDoc);
+      logs.set(tool, JSON.stringify(t.log));
+    }
+    const seen = new Set(logs.values());
+    expect(seen.size).toBe(tools.length);
+  });
 });
