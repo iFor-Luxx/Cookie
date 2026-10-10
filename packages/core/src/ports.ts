@@ -19,6 +19,8 @@ export interface CryptoPort {
   newId(): string;
   /** Secreto aleatorio de alta entropía (base64url). */
   newSecret(): string;
+  /** Token de invitación corto (9 caracteres legibles, ver invite-token). */
+  newInviteToken(): string;
   hashSecret(secret: string): Promise<string>;
   verifySecret(secret: string, hash: string): Promise<boolean>;
   /**

@@ -189,11 +189,14 @@ export class ApiClient {
     return this.request("/v1/me");
   }
 
-  async createSpace(): Promise<{
+  async createSpace(recoverySecret?: string): Promise<{
     pairSpaceId: string;
     recoverySecret: string;
   }> {
-    return this.post("/v1/pair-spaces", {});
+    return this.post(
+      "/v1/pair-spaces",
+      recoverySecret === undefined ? {} : { recoverySecret },
+    );
   }
 
   async createInvite(

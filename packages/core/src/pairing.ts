@@ -14,6 +14,7 @@ import {
   type User,
 } from "./entities";
 import type { ClockPort, CryptoPort, PairingStore, Result } from "./ports";
+import { normalizeInviteToken } from "./invite-token";
 
 function validDisplayName(name: string): boolean {
   return name.length >= 1 && name.length <= 32;
@@ -75,10 +76,16 @@ export async function createPairSpace(
   store: PairingStore,
   crypto: CryptoPort,
   clock: ClockPort,
-  input: { userId: string },
+  input: { userId: string; recoverySecret?: string },
 ): Promise<Result<CreatedPairSpace>> {
   const user = await store.findUser(input.userId);
   if (!user) return { ok: false, code: "NOT_FOUND" };
+  if (
+    input.recoverySecret !== undefined &&
+    (input.recoverySecret.length < 8 || input.recoverySecret.length > 128)
+  ) {
+    return { ok: false, code: "VALIDATION_ERROR" };
+  }
   const now = clock.nowIso();
   const space: PairSpace = {
     id: crypto.newId(),
@@ -92,7 +99,7 @@ export async function createPairSpace(
     joinedAt: now,
     leftAt: null,
   };
-  const secret = crypto.newSecret();
+  const secret = input.recoverySecret ?? crypto.newSecret();
   const recovery: RecoveryCredential = {
     id: crypto.newId(),
     pairSpaceId: space.id,
@@ -135,7 +142,7 @@ export async function createInvite(
   const now = clock.nowIso();
   // SDD: máximo un invite activo recomendado. Expirar anteriores.
   await store.expireActiveInvites(input.spaceId, now);
-  const token = crypto.newSecret();
+  const token = crypto.newInviteToken();
   const invite: Invite = {
     id: crypto.newId(),
     pairSpaceId: input.spaceId,
@@ -156,7 +163,15 @@ async function findInviteByToken(
   token: string,
 ): Promise<Invite | null> {
   // Lookup determinista por SHA-256 (ver CryptoPort.lookupHash).
-  return store.findInviteByTokenHash(await crypto.lookupHash(token));
+  // Acepta minúsculas (el token corto es insensible a mayúsculas) y
+  // mantiene compatibilidad con tokens largos anteriores (sensibles).
+  const trimmed = token.trim();
+  const found =
+    await store.findInviteByTokenHash(await crypto.lookupHash(trimmed));
+  if (found) return found;
+  const upper = normalizeInviteToken(trimmed);
+  if (upper === trimmed) return null;
+  return store.findInviteByTokenHash(await crypto.lookupHash(upper));
 }
 
 export async function consumeInvite(

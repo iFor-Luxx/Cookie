@@ -42,6 +42,8 @@ interface ToolbarProps {
   canRedo: boolean;
   onUndo: () => void;
   onRedo: () => void;
+  /** Oculta deshacer/rehacer (cuando ya viven en la barra superior). */
+  hideHistoryActions?: boolean;
 }
 
 export function Toolbar({
@@ -51,6 +53,7 @@ export function Toolbar({
   canRedo,
   onUndo,
   onRedo,
+  hideHistoryActions = false,
 }: ToolbarProps): React.JSX.Element | null {
   const [pickerOpen, setPickerOpen] = useState(false);
   const current = TOOLS.find((t) => t.id === brush.tool) ?? TOOLS[0];
@@ -141,25 +144,29 @@ export function Toolbar({
         />
         <span className="w-8 text-right tabular-nums">{brush.size}</span>
       </label>
-      <Separator orientation="vertical" className="h-6" />
-      <Button
-        variant="ghost"
-        size="icon"
-        aria-label="Deshacer"
-        disabled={!canUndo}
-        onClick={onUndo}
-      >
-        <Undo2 className="size-4" aria-hidden />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon"
-        aria-label="Rehacer"
-        disabled={!canRedo}
-        onClick={onRedo}
-      >
-        <Redo2 className="size-4" aria-hidden />
-      </Button>
+      {!hideHistoryActions && (
+        <>
+          <Separator orientation="vertical" className="h-6" />
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Deshacer"
+            disabled={!canUndo}
+            onClick={onUndo}
+          >
+            <Undo2 className="size-4" aria-hidden />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Rehacer"
+            disabled={!canRedo}
+            onClick={onRedo}
+          >
+            <Redo2 className="size-4" aria-hidden />
+          </Button>
+        </>
+      )}
     </div>
   );
 }

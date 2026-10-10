@@ -24,6 +24,8 @@ interface CanvasBoardProps {
   draftId: string;
   onSaveState: (s: SaveState) => void;
   onStrokesVersion: () => void;
+  /** Marco punteado en lugar del borde sólido. */
+  dashed?: boolean;
 }
 
 /** Lienzo: input por Pointer Events fuera del estado React, capas base+overlay. */
@@ -34,6 +36,7 @@ export function CanvasBoard({
   draftId,
   onSaveState,
   onStrokesVersion,
+  dashed = false,
 }: CanvasBoardProps): React.JSX.Element {
   const wrapRef = useRef<HTMLDivElement>(null);
   const baseRef = useRef<HTMLCanvasElement>(null);
@@ -194,7 +197,11 @@ export function CanvasBoard({
     <div className="flex justify-center">
       <div
         ref={wrapRef}
-        className="relative touch-none overflow-hidden rounded-lg border bg-white shadow select-none"
+        className={
+          dashed
+            ? "relative touch-none overflow-hidden rounded-lg border-2 border-dashed border-muted-foreground/60 bg-white select-none"
+            : "relative touch-none overflow-hidden rounded-lg border bg-white shadow select-none"
+        }
         style={{ touchAction: "none" }}
         aria-label="Lienzo de dibujo"
         role="application"

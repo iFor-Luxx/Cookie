@@ -13,6 +13,15 @@ export function inviteQrPayload(inviteToken: string): string {
   return `${INVITE_QR_SCHEME}${inviteToken.trim()}`;
 }
 
+/** Formatea lo que escribe el usuario: mayúsculas, solo símbolos
+ * válidos del token (sin 0/O/1/I), máximo 9 caracteres. */
+export function formatInviteTokenInput(raw: string): string {
+  return raw
+    .toUpperCase()
+    .replace(/[^A-HJ-NP-Z2-9]/g, "")
+    .slice(0, 9);
+}
+
 export function loginQrPayload(attemptId: string, code: string): string {
   return `${LOGIN_QR_SCHEME}${attemptId.trim()}/${code.trim()}`;
 }

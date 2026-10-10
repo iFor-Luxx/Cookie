@@ -1,4 +1,5 @@
 import type { CryptoPort } from "@cookie/core";
+import { generateInviteToken } from "@cookie/core";
 
 // Workers limita PBKDF2 a 100k iteraciones (NotSupportedError por encima).
 // El formato `pbkdf2$iter$...` guarda las iteraciones y verifySecret las
@@ -13,6 +14,11 @@ export function webCryptoPort(): CryptoPort {
     newSecret: () => {
       const bytes = crypto.getRandomValues(new Uint8Array(32));
       return base64url(bytes);
+    },
+    newInviteToken: () => {
+      const bytes = crypto.getRandomValues(new Uint8Array(9));
+      let i = 0;
+      return generateInviteToken(() => bytes[i++] ?? 0);
     },
     hashSecret: async (secret: string) => {
       const salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES));

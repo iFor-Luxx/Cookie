@@ -1,4 +1,4 @@
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Eye, EyeOff } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -70,6 +70,7 @@ export function Onboarding({
   const [recover, setRecover] = useState(false);
   const [spaceId, setSpaceId] = useState(() => loadLastSpaceId() ?? "");
   const [secret, setSecret] = useState("");
+  const [showSecret, setShowSecret] = useState(false);
   // Entrada estilo WhatsApp Web: este PC muestra su QR y el celular con
   // sesión lo escanea para aprobar. Sin escribir nada aquí.
   const [attempt, setAttempt] = useState<{
@@ -325,10 +326,10 @@ export function Onboarding({
               Cookie
             </p>
             <CardTitle className="font-serif text-3xl">
-              Hola, coloca tu nombre
+              Hola, ¿cómo te llamas?
             </CardTitle>
             <CardDescription>
-              Este nombre es tu nuevo apodo y es visible.
+              Nombre visible de 1 a 32 caracteres. Sin contraseñas.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
@@ -336,20 +337,14 @@ export function Onboarding({
             {!recover ? (
               <>
                 <div className="flex flex-col gap-2">
-                  <Label htmlFor="name">Nombre</Label>
+                  <Label htmlFor="name">Nombre (cuenta nueva)</Label>
                   <Input
                     id="name"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     maxLength={32}
                     placeholder="Lux"
-                    autoComplete="off"
-                    autoCorrect="off"
-                    autoCapitalize="off"
-                    spellCheck={false}
-                    name="cookie-display-name"
-                    data-1p-ignore
-                    data-lpignore="true"
+                    autoComplete="nickname"
                   />
                 </div>
                 {error && <p className="text-sm text-destructive">{error}</p>}
@@ -379,7 +374,7 @@ export function Onboarding({
                       key="qr"
                       className={cn(
                         !reducedMotion &&
-                          "animate-[fade-in_0.45s_ease-out_both]",
+                          "animate-[fade-in_0.22s_ease-in-out_both]",
                       )}
                     >
                       <InviteQr
@@ -429,12 +424,40 @@ export function Onboarding({
                   </p>
                 </div>
                 <div className="flex flex-col gap-2">
-                  <Label htmlFor="secret">Secreto de recuperación</Label>
-                  <Input
-                    id="secret"
-                    value={secret}
-                    onChange={(e) => setSecret(e.target.value)}
-                  />
+                  <Label htmlFor="secret">Contraseña de recuperación</Label>
+                  <div className="relative">
+                    <Input
+                      id="secret"
+                      type={showSecret ? "text" : "password"}
+                      value={secret}
+                      onChange={(e) => setSecret(e.target.value)}
+                      autoComplete="current-password"
+                      className="pr-10"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setShowSecret((v) => !v)}
+                      aria-label={
+                        showSecret
+                          ? "Ocultar contraseña"
+                          : "Mostrar contraseña"
+                      }
+                      title={
+                        showSecret
+                          ? "Ocultar contraseña"
+                          : "Mostrar contraseña"
+                      }
+                      className="absolute top-1/2 right-1 h-7 w-7 -translate-y-1/2"
+                    >
+                      {showSecret ? (
+                        <EyeOff className="size-4" aria-hidden />
+                      ) : (
+                        <Eye className="size-4" aria-hidden />
+                      )}
+                    </Button>
+                  </div>
                 </div>
                 {error && <p className="text-sm text-destructive">{error}</p>}
                 <Button

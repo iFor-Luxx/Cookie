@@ -40,6 +40,8 @@ function stubCrypto(): CryptoPort {
   return {
     newId: ids,
     newSecret: () => `secret-${++n}`,
+    // Token determinista con formato válido (9 caracteres del alfabeto).
+    newInviteToken: () => `ABCDEFGH${"JKLMNPQRSTUVWXYZ23456789"[n % 24]}`,
     // Hash reversible SOLO para tests: "h:<secret>".
     hashSecret: async (s: string) => `h:${s}`,
     verifySecret: async (s: string, h: string) => h === `h:${s}`,
@@ -130,6 +132,44 @@ function memoryStore(): PairingStore {
 }
 
 describe("pairing H2", () => {
+  it("token de invitación: 9 caracteres legibles, sin 0/O/1/I", async () => {
+    const store = memoryStore();
+    const crypto = stubCrypto();
+    const clock = stubClock();
+    const a = await registerInstallation(store, crypto, clock, {
+      platform: "web",
+      displayName: "A",
+    });
+    expect(a.ok).toBe(true);
+    if (!a.ok) return;
+    const space = await createPairSpace(store, crypto, clock, {
+      userId: a.value.user.id,
+    });
+    expect(space.ok).toBe(true);
+    if (!space.ok) return;
+    const inv = await createInvite(store, crypto, clock, {
+      spaceId: space.value.space.id,
+      actorUserId: a.value.user.id,
+      ttlSeconds: 3600,
+    });
+    expect(inv.ok).toBe(true);
+    if (!inv.ok) return;
+    expect(inv.value.inviteToken).toMatch(/^[A-HJ-NP-Z2-9]{9}$/);
+
+    // Acepta minúsculas (insensible a mayúsculas).
+    const bReg = await registerInstallation(store, crypto, clock, {
+      platform: "android",
+      displayName: "B",
+    });
+    expect(bReg.ok).toBe(true);
+    if (!bReg.ok) return;
+    const b = await consumeInvite(store, crypto, clock, {
+      token: inv.value.inviteToken.toLowerCase(),
+      userId: bReg.value.user.id,
+    });
+    expect(b.ok).toBe(true);
+  });
+
   it("registra instalación y valida nombre", async () => {
     const store = memoryStore();
     const crypto = stubCrypto();

@@ -19,6 +19,7 @@ import {
   createInstallationRequest,
   createInviteRequest,
   createLoginAttemptRequest,
+  createPairSpaceRequest,
   pollLoginAttemptRequest,
   pushTokenRequest,
   recoveryChallengeRequest,
@@ -264,8 +265,17 @@ export function createApp(deps: AppDeps): (req: Request) => Promise<Response> {
           409,
         );
       }
+      const parsed = createPairSpaceRequest.safeParse(
+        (await readJson(req)) ?? {},
+      );
+      if (!parsed.success) {
+        return err(requestId, "VALIDATION_ERROR", "Petición inválida", 400);
+      }
       const res = await createPairSpace(deps.store, deps.crypto, deps.clock, {
         userId: me.user.id,
+        ...(parsed.data.recoverySecret !== undefined
+          ? { recoverySecret: parsed.data.recoverySecret }
+          : {}),
       });
       if (!res.ok)
         return domainErr(requestId, res.code, "No se pudo crear el espacio");

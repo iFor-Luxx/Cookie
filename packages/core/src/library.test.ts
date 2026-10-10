@@ -18,6 +18,7 @@ function stubCrypto(): CryptoPort {
   return {
     newId: () => `id-${++n}`,
     newSecret: () => `secret-${++n}`,
+    newInviteToken: () => `ABCDEFGH${"JKLMNPQRSTUVWXYZ23456789"[n % 24]}`,
     hashSecret: async (s: string) => `h:${s}`,
     verifySecret: async (s: string, h: string) => h === `h:${s}`,
     lookupHash: async (s: string) => `l:${s}`,

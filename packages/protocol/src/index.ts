@@ -40,6 +40,13 @@ export const headersSchema = z.object({
 export const platformSchema = z.enum(["web", "android"]);
 export const displayNameSchema = z.string().min(1).max(32);
 
+// Token de invitación: 9 caracteres, mayúsculas y dígitos,
+// sin 0/O/1/I para evitar confusiones al escribirlo a mano.
+export const inviteTokenSchema = z
+  .string()
+  .trim()
+  .regex(/^[A-HJ-NP-Z2-9]{9}$/);
+
 // POST /v1/installations
 export const createInstallationRequest = z.object({
   platform: platformSchema,
@@ -82,6 +89,11 @@ export const pushTokenRequest = z.object({
 });
 
 // POST /v1/pair-spaces — crea espacio + primer miembro + recovery secret
+// recoverySecret opcional: si el usuario define su contraseña (8-128),
+// se usa esa; si se omite, el servidor genera una de alta entropía.
+export const createPairSpaceRequest = z.object({
+  recoverySecret: z.string().min(8).max(128).optional(),
+});
 export const createPairSpaceResponse = z.object({
   pairSpaceId: z.string(),
   // Secreto de recovery: mostrar UNA vez. Sin él no hay recuperación.
@@ -100,14 +112,15 @@ export const createInviteRequest = z.object({
 export const createInviteResponse = z.object({
   inviteId: z.string(),
   // Token de invitación: un solo uso, TTL corto. Compartir por canal privado.
-  inviteToken: z.string(),
+  inviteToken: inviteTokenSchema,
   expiresAt: z.string(),
 });
 
 // POST /v1/invites/consume — autenticado: vincula al usuario ya registrado.
 // Sin segundo nombre: la identidad viene del onboarding (una sola vez).
+// Acepta minúsculas y espacios: el servidor normaliza a mayúsculas.
 export const consumeInviteRequest = z.object({
-  inviteToken: z.string().min(1),
+  inviteToken: z.string().trim().min(1).max(128),
 });
 export const consumeInviteResponse = z.object({
   pairSpaceId: z.string(),
