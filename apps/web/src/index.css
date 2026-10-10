@@ -18,7 +18,32 @@
   font-display: swap;
 }
 
+/* Entrada del logo en la portada del onboarding */
+@keyframes logo-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Aparición en cascada de textos y botón tras el logo */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 :root {
+  color-scheme: light;
   --background: oklch(0.97 0.0029 264.542);
   --foreground: oklch(0.1801 0.0191 255.7673);
   --card: oklch(1 0 0);
@@ -85,6 +110,7 @@
 }
 
 .dark {
+  color-scheme: dark;
   --background: oklch(0.1492 0.0093 263.9667);
   --foreground: oklch(0.9602 0.0034 247.8587);
   --card: oklch(0.1993 0.0111 260.661);

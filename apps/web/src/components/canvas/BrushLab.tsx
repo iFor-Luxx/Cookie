@@ -15,20 +15,10 @@ import {
 import { useEffect, useRef } from "react";
 
 const ORDER: Array<{ id: ToolId; label: string }> = [
-  { id: "graphite", label: "Grafito" },
-  { id: "pencil", label: "Lápiz de color" },
   { id: "marker", label: "Rotulador" },
-  { id: "2b", label: "2B" },
-  { id: "2h", label: "2H" },
-  { id: "cpencil", label: "Fibra" },
   { id: "pen", label: "Pluma" },
-  { id: "rotring", label: "Técnico" },
-  { id: "spray", label: "Spray" },
-  { id: "marker2", label: "Bisel" },
-  { id: "watercolor", label: "Acuarela" },
-  { id: "charcoal", label: "Carboncillo" },
-  { id: "hatch", label: "Sombreado" },
-  { id: "smudge", label: "Difumino" },
+  { id: "pencil", label: "Lápiz de color" },
+  { id: "cpencil", label: "Fibra" },
 ];
 
 function linePts(
@@ -169,10 +159,10 @@ export function BrushLab(): React.JSX.Element {
         <p className="text-xs tracking-widest text-muted-foreground uppercase">
           Dev-only · #/lab
         </p>
-        <h1 className="text-2xl">Banco visual de pinceles (v11)</h1>
+        <h1 className="text-2xl">Banco visual de pinceles (v12)</h1>
         <p className="text-sm text-muted-foreground">
           Lenta firme · leve rápida · curva con rampa · cruce superpuesto.
-          Textura fotorealista v11 (doble-tono, grano de papel, smear real).
+          Rotulador · pluma · lápiz de color · fibra.
         </p>
       </header>
       {ORDER.map(({ id, label }, i) => (

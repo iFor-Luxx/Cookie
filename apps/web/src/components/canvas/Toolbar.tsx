@@ -1,23 +1,14 @@
 import type { BrushConfig, ToolId } from "@cookie/drawing";
 import {
   Brush,
-  Droplet,
-  Eraser,
-  Feather,
   Highlighter,
   Paintbrush,
   Pen,
-  Pencil,
-  PencilLine,
-  PenLine,
-  PenTool,
   Redo2,
-  Ruler,
-  Slash,
-  SprayCan,
   Undo2,
 } from "lucide-react";
 import { useState } from "react";
+import { CustomColorPicker } from "@/components/canvas/CustomColorPicker";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -28,25 +19,14 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 
-const TOOLS: Array<{ id: ToolId; label: string; icon: typeof Pencil }> = [
-  { id: "graphite", label: "Grafito", icon: Pencil },
-  { id: "pencil", label: "Lápiz de color", icon: Brush },
+const TOOLS: Array<{ id: ToolId; label: string; icon: typeof Brush }> = [
   { id: "marker", label: "Rotulador", icon: Highlighter },
-  { id: "2b", label: "2B", icon: PencilLine },
-  { id: "2h", label: "2H", icon: PenLine },
-  { id: "cpencil", label: "Fibra", icon: Paintbrush },
   { id: "pen", label: "Pluma", icon: Pen },
-  { id: "rotring", label: "Técnico", icon: PenTool },
-  { id: "spray", label: "Spray", icon: SprayCan },
-  { id: "marker2", label: "Bisel", icon: Slash },
-  { id: "watercolor", label: "Acuarela", icon: Droplet },
-  { id: "charcoal", label: "Carboncillo", icon: Feather },
-  { id: "hatch", label: "Sombreado", icon: Ruler },
-  { id: "smudge", label: "Difumino", icon: Eraser },
+  { id: "pencil", label: "Lápiz de color", icon: Brush },
+  { id: "cpencil", label: "Fibra", icon: Paintbrush },
 ];
 
 const COLORS = [
-  "#333333",
   "#111111",
   "#2563eb",
   "#dc2626",
@@ -122,8 +102,13 @@ export function Toolbar({
         </DialogContent>
       </Dialog>
       <Separator orientation="vertical" className="h-6" />
-      <fieldset className="flex items-center gap-1">
+      <fieldset className="flex min-w-0 items-center gap-1">
         <legend className="sr-only">Color</legend>
+        <CustomColorPicker
+          value={brush.color}
+          presetActive={COLORS.includes(brush.color)}
+          onChange={(color) => onBrush({ ...brush, color })}
+        />
         {COLORS.map((c) => (
           <button
             key={c}
@@ -132,7 +117,7 @@ export function Toolbar({
             aria-pressed={brush.color === c}
             onClick={() => onBrush({ ...brush, color: c })}
             className={cn(
-              "size-7 rounded-full border transition-transform",
+              "size-7 shrink-0 rounded-full border transition-transform",
               brush.color === c
                 ? "scale-110 border-ring ring-2 ring-ring/40"
                 : "border-border",

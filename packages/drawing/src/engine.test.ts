@@ -23,7 +23,7 @@ describe("DrawingEngine", () => {
       { width: 512, height: 512, background: "#FFFFFF" },
       ids,
     );
-    engine.beginStroke(pt(0.1, 0.1), DEFAULT_BRUSHES.graphite);
+    engine.beginStroke(pt(0.1, 0.1), DEFAULT_BRUSHES.marker);
     engine.appendSamples([pt(0.2, 0.2), pt(0.2, 0.2), pt(0.3, 0.3)]);
     const id = engine.endStroke();
     expect(id).toBeTypeOf("string");
@@ -79,7 +79,7 @@ describe("DrawingEngine", () => {
       { width: 128, height: 128, background: "#FFFFFF" },
       ids,
     );
-    a.beginStroke(pt(0.1, 0.9), DEFAULT_BRUSHES.graphite);
+    a.beginStroke(pt(0.1, 0.9), DEFAULT_BRUSHES.pencil);
     a.endStroke();
     const doc = a.exportDocument();
     const b = createDrawingEngine(

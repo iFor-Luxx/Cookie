@@ -29,7 +29,7 @@ describe("drawing model v1", () => {
         strokes: [
           {
             id: "s",
-            tool: "graphite",
+            tool: "marker",
             color: "#333333",
             size: 3,
             opacity: 0.8,
@@ -77,7 +77,7 @@ describe("drawing model v1", () => {
       strokes: [
         {
           id: "s1",
-          tool: "graphite",
+          tool: "pencil",
           color: "#333333",
           size: 3.25,
           opacity: 0.876543,
@@ -99,22 +99,41 @@ describe("drawing model v1", () => {
     expect(Math.abs(0.1234567 - firstPoint[0]) * 4096).toBeLessThan(0.5);
   });
 
-  it("pinceles por defecto cubren las 14 herramientas", () => {
+  it("pinceles por defecto cubren las 4 herramientas", () => {
     expect(Object.keys(DEFAULT_BRUSHES).sort()).toEqual([
-      "2b",
-      "2h",
-      "charcoal",
       "cpencil",
-      "graphite",
-      "hatch",
       "marker",
-      "marker2",
       "pen",
       "pencil",
-      "rotring",
-      "smudge",
-      "spray",
-      "watercolor",
     ]);
+  });
+
+  it("migra herramientas legacy a su equivalente actual", () => {
+    const doc = parseDocument({
+      schemaVersion: 1,
+      canvas: { width: 256, height: 256, background: "#FFFFFF" },
+      strokes: [
+        {
+          id: "old",
+          tool: "graphite",
+          color: "#333333",
+          size: 4,
+          opacity: 0.8,
+          seed: 1,
+          points: [[0.2, 0.2, 0.5, 0]],
+        },
+        {
+          id: "old2",
+          tool: "spray",
+          color: "#333333",
+          size: 8,
+          opacity: 0.5,
+          seed: 2,
+          points: [[0.5, 0.5, 0.5, 0]],
+        },
+      ],
+    });
+    expect(doc.strokes[0]?.tool).toBe("pencil");
+    expect(doc.strokes[1]?.tool).toBe("marker");
   });
 });

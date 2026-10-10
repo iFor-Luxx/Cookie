@@ -57,7 +57,7 @@ export function App(): React.JSX.Element {
   const [screen, setScreen] = useState<Screen>("boot");
   const [spaceId, setSpaceId] = useState<string | null>(null);
   const [tab, setTab] = useState("lienzo");
-  const [brush, setBrush] = useState<BrushConfig>(DEFAULT_BRUSHES.graphite);
+  const [brush, setBrush] = useState<BrushConfig>(DEFAULT_BRUSHES.marker);
   const [saveState, setSaveState] = useState<SaveState>("local");
   const [, setVersion] = useState(0);
   const [pending, setPending] = useState(0);

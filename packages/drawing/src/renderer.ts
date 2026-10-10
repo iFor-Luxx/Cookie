@@ -26,54 +26,13 @@ export interface RenderTarget {
   ): void;
   /** Sello circular (grano/fibra). */
   stamp(x: number, y: number, r: number, color: string, alpha: number): void;
-  /**
-   * Sello elíptico orientado (trozos de carbón, punteado direccional).
-   * `rot` en radianes, `rx`/`ry` radios en píxeles.
-   */
-  stampEllipse(
-    x: number,
-    y: number,
-    rx: number,
-    ry: number,
-    rot: number,
-    color: string,
-    alpha: number,
-  ): void;
-  /** Línea fina de ancho exacto (técnico, cerdas de fibra, ticks). */
+  /** Línea fina de ancho exacto (cerdas de fibra). */
   hairline(
     x0: number,
     y0: number,
     x1: number,
     y1: number,
     w: number,
-    color: string,
-    alpha: number,
-  ): void;
-  /**
-   * Difuminado real: arrastra pigmento YA pintado a lo largo del
-   * segmento (mezcla real, no tono falso). Implementación Canvas2D:
-   * copia desplazada + blur dentro del clip del trazo. En recording
-   * solo se loguea (determinismo intacto).
-   */
-  smear(
-    x0: number,
-    y0: number,
-    x1: number,
-    y1: number,
-    w: number,
-    strength: number,
-  ): void;
-  /**
-   * Banda plana de bordes rectos y extremos cuadrados (bisel: filo plano,
-   * no redondo). Cuadrilátero entre anchos w0→w1.
-   */
-  band(
-    x0: number,
-    y0: number,
-    x1: number,
-    y1: number,
-    w0: number,
-    w1: number,
     color: string,
     alpha: number,
   ): void;
@@ -84,7 +43,7 @@ export interface RenderOptions {
   readonly rendererVersion?: number;
 }
 
-export const RENDERER_VERSION = 11 as const;
+export const RENDERER_VERSION = 12 as const;
 
 interface Px {
   x: number;
@@ -191,12 +150,9 @@ function midpoint(a: Px, b: Px): Px {
  * trazo; spray en disco uniforme; marker/bisel translúcidos por solape;
  * acuarela wash más fina; difumino sutil. Pluma, lápiz de color y fibra
  * se conservan intactos (sin quejas, recetas propias validadas).
- * v11: textura fotorealista sin subir caps (60fps): doble-tono por
- * mota en secos, grano de papel modulado, spray log-normal + spatter,
- * acuarela con filo irregular + floculación, carbón excéntrico con
- * polvo dual, 2H plateado con surco, hatch con 2 pesos, rotring con
- * sangrado por sellos, bisel con brillo alcohol, difumino con `smear`
- * real (arrastra píxeles ya pintados).
+ * v12: solo 4 herramientas (pencil/marker/cpencil/pen). Las 10
+ * eliminadas migran en parseDocument a su equivalente y el renderer
+ * ya no las contempla.
  */
 
 /** Oscurece/aclara un `#rrggbb` por factor (bordes de dos tonos). */
@@ -219,31 +175,6 @@ function tint(hex: string, f: number): string {
 }
 
 /**
- * v11: doble-tono fotorealista por mota. 85% color base, 10% grano
- * oscuro (grafito denso), 5% brillo (reflejo metálico a presión).
- * Consume 1 llamada RNG al final del orden fijo por mota.
- */
-function dualTone(
-  rand: () => number,
-  base: string,
-  dark: string,
-  light: string,
-): string {
-  const r = rand();
-  if (r < 0.1) return dark;
-  if (r < 0.15) return light;
-  return base;
-}
-
-/**
- * v11: modulación de grano de papel (1 llamada RNG). Devuelve factor
- * 0.75..1.15 que simula valles/fibras sin textura externa.
- */
-function paperGrainMod(rand: () => number): number {
-  return 0.75 + rand() * 0.4;
-}
-
-/**
  * Ancho de cincel/pluma según dirección del trazo (p5.brush `rotate:
  * "natural"`): la marca respira con el giro, no con la presión.
  * `nib` en radianes; devuelve factor en [minF, minF+ampF].
@@ -258,9 +189,8 @@ function chiselFactor(
 }
 
 /**
- * Fila literal de p5.brush v1.1.4 (pesos pre-`scaleBrushes`; verificado
- * en `src/index.js` v.1.1.4). Solo medios con queja: pluma, lápiz de
- * color y fibra conservan recetas propias (sin equivalente/trouble).
+ * Fila literal de p5.brush v1.1.4 para el rotulador (pesos
+ * pre-`scaleBrushes`; verificado en `src/index.js` v.1.1.4).
  */
 interface P5Row {
   readonly weight: number;
@@ -273,68 +203,7 @@ interface P5Row {
   readonly minmax: readonly [number, number];
 }
 
-const P5: Record<
-  | "graphite"
-  | "2b"
-  | "2h"
-  | "rotring"
-  | "spray"
-  | "marker"
-  | "marker2"
-  | "charcoal"
-  | "hatch",
-  P5Row
-> = {
-  graphite: {
-    weight: 0.3,
-    scatter: 0.5,
-    sharp: 0.4,
-    grain: 4,
-    opacity: 180,
-    spacing: 0.25,
-    curve: [0.15, 0.2],
-    minmax: [1.2, 0.9],
-  },
-  "2b": {
-    weight: 0.35,
-    scatter: 0.5,
-    sharp: 0.1,
-    grain: 8,
-    opacity: 180,
-    spacing: 0.2,
-    curve: [0.15, 0.2],
-    minmax: [1.3, 1],
-  },
-  "2h": {
-    weight: 0.2,
-    scatter: 0.4,
-    sharp: 0.3,
-    grain: 2,
-    opacity: 150,
-    spacing: 0.2,
-    curve: [0.15, 0.2],
-    minmax: [1.2, 0.9],
-  },
-  rotring: {
-    weight: 0.2,
-    scatter: 0.05,
-    sharp: 1,
-    grain: 3,
-    opacity: 250,
-    spacing: 0.15,
-    curve: [0.05, 0.2],
-    minmax: [1.7, 0.8],
-  },
-  spray: {
-    weight: 0.3,
-    scatter: 12,
-    sharp: 15,
-    grain: 40,
-    opacity: 80,
-    spacing: 0.65,
-    curve: [0, 0.1],
-    minmax: [0.15, 1.2],
-  },
+const P5: Record<"marker", P5Row> = {
   marker: {
     weight: 2.5,
     scatter: 0.12,
@@ -344,36 +213,6 @@ const P5: Record<
     spacing: 0.4,
     curve: [0.35, 0.25],
     minmax: [1.5, 1],
-  },
-  marker2: {
-    weight: 2.5,
-    scatter: 0.12,
-    sharp: 1,
-    grain: 1,
-    opacity: 25,
-    spacing: 0.35,
-    curve: [0.35, 0.25],
-    minmax: [1.3, 0.95],
-  },
-  charcoal: {
-    weight: 0.5,
-    scatter: 2,
-    sharp: 0.8,
-    grain: 300,
-    opacity: 110,
-    spacing: 0.06,
-    curve: [0.15, 0.2],
-    minmax: [1.3, 0.8],
-  },
-  hatch: {
-    weight: 0.2,
-    scatter: 0.4,
-    sharp: 0.3,
-    grain: 2,
-    opacity: 150,
-    spacing: 0.15,
-    curve: [0.5, 0.7],
-    minmax: [1, 1.5],
   },
 };
 
@@ -481,13 +320,6 @@ interface GrainFieldOpts {
    * Presente en herramientas portadas; ausente en las conservadas.
    */
   readonly lorentz?: LorentzParams;
-  /**
-   * v11: textura fotorealista por mota (doble-tono + grano de papel).
-   * No cambia el nº de motas ni el alfa (mismo presupuesto 60fps).
-   */
-  readonly texture?: boolean;
-  readonly toneDark?: string;
-  readonly toneLight?: string;
 }
 
 /**
@@ -543,18 +375,11 @@ function grainField(
       (0.75 + rand() * 0.35);
     if (skip || gate) continue;
     const tooth = paper;
-    // v11: doble-tono + grano de papel (2 llamadas fijas al final).
-    let moteColor = tooth ? canvas.background : color;
-    let grainMul = 1;
-    if (o.texture && !tooth && o.toneDark && o.toneLight) {
-      moteColor = dualTone(rand, color, o.toneDark, o.toneLight);
-      grainMul = paperGrainMod(rand);
-    }
     target.stamp(
       c.x + nx * offP + Math.cos(dir) * offA,
       c.y + ny * offP + Math.sin(dir) * offA,
-      Math.max(0.3, envW * o.radius * jr * grainMul * (tooth ? 0.35 : 1)),
-      moteColor,
+      Math.max(0.3, envW * o.radius * jr * (tooth ? 0.35 : 1)),
+      tooth ? canvas.background : color,
       tooth ? alpha * 0.5 : alpha,
     );
   }
@@ -687,15 +512,7 @@ export function renderStroke(
   _opts: RenderOptions = {},
 ): void {
   if (stroke.points.length === 0) return;
-  const ignorePressure = stroke.tool === "rotring";
-  // rotring: ancho técnico constante (ignora la presión).
-  const pts = toPixels(
-    stroke.points,
-    canvas,
-    stroke.size,
-    target,
-    ignorePressure,
-  );
+  const pts = toPixels(stroke.points, canvas, stroke.size, target);
   // D2: grano con respuesta cuadrática (p5.brush `drawDefault`); el resto
   // de regímenes usan la curva lineal de arriba.
   const ptsQ = toPixels(
@@ -703,7 +520,7 @@ export function renderStroke(
     canvas,
     stroke.size,
     target,
-    ignorePressure,
+    false,
     true,
   );
   const rand = mulberry32(stroke.seed);
@@ -842,372 +659,6 @@ export function renderStroke(
     return;
   }
 
-  // rotring: TÉCNICO (port fiel p5.brush `rotring` v10). Estipulado
-  // fino y denso, GRIS de tinta con grano — nunca negro sólido
-  // vectorial: así deja de parecerse al rotulador. Ancho constante
-  // (ignora la presión del puntero, como el rapidógrafo real); la
-  // envolvente Lorentz es casi plana. Sin temblor. Gota al apoyar.
-  if (stroke.tool === "rotring") {
-    const P = P5.rotring;
-    const L = lorentzFor(rand, P);
-    const techAlpha = stroke.opacity * strokeNoiseFactor(rand, 0.3);
-    const wpts = pts;
-    const m = pathMetrics(wpts);
-    const A = (P.opacity / 255) * techAlpha;
-    grainField(target, canvas, wpts, m, rand, stroke.color, techAlpha, {
-      stepMul: 0.13,
-      density: 2,
-      cap: 500,
-      radius: 0.09,
-      radiusJitter: 0.3,
-      spread: 0.05,
-      alphaMin: A * 0.85,
-      alphaSpan: A * 0.3,
-      drySkip: 0,
-      tooth: 0,
-      gate: Math.min(1, P.grain * 0.25),
-      fuzz: 1 - P.sharp,
-      tiltAmt: 0,
-      pressure: [1.0, 1.0, 1.0],
-      lorentz: L,
-    });
-    // Gota al apoyar: la aguja suelta tinta al pausar.
-    const first = pts[0];
-    if (first)
-      target.stamp(
-        first.x,
-        first.y,
-        Math.max(0.4, first.w * 0.62),
-        stroke.color,
-        Math.min(1, techAlpha),
-      );
-    // v11: sangrado micro en fibra del papel — sellos anchos tenues
-    // (sigue siendo solo sellos: cero segmentos/hairlines).
-    const bleedN = Math.min(
-      60,
-      Math.max(6, Math.floor(m.total / Math.max(1, m.avgW * 1.5))),
-    );
-    for (let s = 0; s < bleedN; s++) {
-      const d = m.total > 0 ? ((s + 0.5) / bleedN) * m.total : 0;
-      const c = sampleAtDistance(wpts, m.cum, d);
-      target.stamp(
-        c.x + (rand() - 0.5) * c.w * 0.2,
-        c.y + (rand() - 0.5) * c.w * 0.2,
-        Math.max(0.5, c.w * 0.9),
-        stroke.color,
-        Math.min(1, A * 0.06),
-      );
-    }
-    return;
-  }
-
-  // spray: AERÓGRAFO (port fiel p5.brush `spray` v10). Nube en DISCO
-  // UNIFORME por rechazo cartesiano (no concentrada al centro), motas
-  // de tamaño fijo independiente de la presión e iteraciones =
-  // grano/presión (capadas por rendimiento: 24/paso). Fade de gatillo
-  // en extremos (aire antes y después que la pintura) + nube abierta
-  // por tilt. Firma: solo sellos.
-  if (stroke.tool === "spray") {
-    const P = P5.spray;
-    const L = lorentzFor(rand, P);
-    const sprayAlpha = stroke.opacity * strokeNoiseFactor(rand, 0.3);
-    const A = (P.opacity / 255) * sprayAlpha;
-    const m = pathMetrics(pts);
-    const step = Math.max(2, m.avgW * 0.3);
-    const n = Math.min(
-      500,
-      Math.max(8, m.total > 0 ? Math.ceil(m.total / step) : 1),
-    );
-    for (let s = 0; s < n; s++) {
-      const d = m.total > 0 ? ((s + 0.5) / n) * m.total : 0;
-      const t = m.total > 0 ? d / m.total : 0;
-      const c = sampleAtDistance(pts, m.cum, d);
-      const p = lorentzAt(m, d, L);
-      // Gatillo: el aire entra antes que la pintura y sale después.
-      const fade = Math.min(1, Math.min(t, 1 - t) / 0.1);
-      const R = Math.max(1, c.w * 2 * p * tiltW(c.t, 1.2));
-      const iters = Math.min(24, Math.max(4, Math.ceil(P.grain * p)));
-      for (let j = 0; j < iters; j++) {
-        // Disco uniforme por rechazo cartesiano (p5 `drawSpray`) + v11:
-        // caída de aire en anillo exterior, tamaño log-normal y spatter
-        // escaso de boquilla (firma fotorealista, mismo nº de motas).
-        const rX = (rand() * 2 - 1) * R;
-        const edge = Math.sqrt(Math.max(0, R * R - rX * rX));
-        const oy = (rand() * 2 - 1) * edge;
-        const dist = Math.sqrt(rX * rX + oy * oy) / Math.max(1, R);
-        const ringFade = 1 - 0.55 * Math.min(1, dist) * Math.min(1, dist);
-        const gaussS = (rand() + rand() + rand() - 1.5) / 1.5;
-        const logR = Math.exp(gaussS * 0.45);
-        const spatter = j % 30 === 0 ? 2.4 : j % 8 === 0 ? 1.8 : 1;
-        target.stamp(
-          c.x + rX,
-          c.y + oy,
-          Math.max(0.3, m.avgW * 0.05 * logR * spatter),
-          stroke.color,
-          Math.min(
-            1,
-            A * (0.3 + rand() * 0.7) * (0.15 + 0.85 * fade) * ringFade,
-          ),
-        );
-      }
-    }
-    return;
-  }
-
-  // marker2: BISEL de cincel plano a 70° (port fiel p5.brush `marker2`
-  // v10). Micro-bandas densas y TRANSLÚCIDAS (el cuerpo sale del
-  // solape, como la tinta de alcohol): el ancho lo manda la DIRECCIÓN
-  // (3 anchos en uno), NUNCA la presión. Sin filos oscuros postizos;
-  // solo vetas secas tenues del fieltro + bulbs de remate.
-  if (stroke.tool === "marker2") {
-    const CHISEL = 1.22;
-    const P = P5.marker2;
-    const biselAlpha =
-      (P.opacity / 255) *
-      Math.min(1, stroke.opacity) *
-      strokeNoiseFactor(rand, 0.3);
-    // Base de ancho constante: el cincel no flexa con la presión.
-    const flat = toPixels(stroke.points, canvas, stroke.size, target, true);
-    const bent = handBend(flat, rand, 0.02, 0.08);
-    const m = pathMetrics(bent);
-    const step = Math.max(1.5, m.avgW * 0.13);
-    const n = Math.min(
-      1200,
-      Math.max(8, m.total > 0 ? Math.ceil(m.total / step) : 1),
-    );
-    for (let s = 0; s < n; s++) {
-      const d = m.total > 0 ? ((s + 0.5) / n) * m.total : 0;
-      const c = sampleAtDistance(bent, m.cum, d);
-      const dir = dirAt(bent, m.cum, d);
-      const f = chiselFactor(dir, CHISEL, 0.55, 0.45);
-      const a = sampleAtDistance(bent, m.cum, Math.max(0, d - step / 2));
-      const b = sampleAtDistance(bent, m.cum, d + step / 2);
-      target.band(
-        a.x,
-        a.y,
-        b.x,
-        b.y,
-        Math.max(0.5, c.w * f),
-        Math.max(0.5, c.w * f),
-        stroke.color,
-        Math.min(1, biselAlpha),
-      );
-      // v11: brillo alcohol (solape translúcido, sin blanco):
-      // velo claro del mismo ancho, alfa mínima — no altera el ancho.
-      if (s % 3 === 0) {
-        target.band(
-          a.x,
-          a.y,
-          b.x,
-          b.y,
-          Math.max(0.5, c.w * f),
-          Math.max(0.5, c.w * f),
-          tint(stroke.color, 0.45),
-          Math.min(1, biselAlpha * 0.15),
-        );
-      }
-      // Veta seca: el fieltro firme deja rieles pálidos longitudinales.
-      if (rand() < 0.3) {
-        const dx = b.x - a.x;
-        const dy = b.y - a.y;
-        const len = Math.hypot(dx, dy) || 1;
-        const nx = -dy / len;
-        const ny = dx / len;
-        const o = (rand() - 0.5) * c.w * f * 0.3;
-        const tw = Math.max(0.5, c.w * f * 0.08);
-        target.hairline(
-          a.x + nx * o,
-          a.y + ny * o,
-          b.x + nx * o,
-          b.y + ny * o,
-          tw,
-          canvas.background,
-          biselAlpha * 1.2,
-        );
-      }
-    }
-    const first = bent[0];
-    const last = bent[bent.length - 1];
-    for (const end of [first, last]) {
-      if (!end) continue;
-      for (let k = 1; k <= 3; k++) {
-        const f = k / 3;
-        target.stamp(
-          end.x,
-          end.y,
-          Math.max(0.4, end.w * 0.42 * f),
-          stroke.color,
-          Math.min(1, biselAlpha * 3),
-        );
-      }
-    }
-    return;
-  }
-
-  // hatch: SOMBREADO técnico (port fiel p5.brush `hatch_brush` v10).
-  // La línea guía es estipulado limpio y ralo (no un segmento tenue
-  // vectorial); encima, ticks perpendiculares densos e irregulares con
-  // algún cruzado: el tono sale del PATRÓN de marcas, no de opacidad.
-  if (stroke.tool === "hatch") {
-    const P = P5.hatch;
-    const L = lorentzFor(rand, P);
-    const hatchAlpha = stroke.opacity * strokeNoiseFactor(rand, 0.3);
-    const wpts = handBend(pts, rand, 0.05, 0.08);
-    const m = pathMetrics(wpts);
-    const A = (P.opacity / 255) * hatchAlpha;
-    grainField(target, canvas, wpts, m, rand, stroke.color, hatchAlpha, {
-      stepMul: 0.13,
-      density: 1,
-      cap: 300,
-      radius: 0.09,
-      radiusJitter: 0.3,
-      spread: 0.4,
-      alphaMin: A * 0.85,
-      alphaSpan: A * 0.3,
-      drySkip: 0,
-      tooth: 0,
-      gate: Math.min(1, P.grain * 0.25),
-      fuzz: 1 - P.sharp,
-      tiltAmt: 0,
-      pressure: [1.0, 1.0, 1.0],
-      lorentz: L,
-    });
-    for (const [a, b] of smoothedPath(wpts)) {
-      const w = (a.w + b.w) / 2;
-      const dx = b.x - a.x;
-      const dy = b.y - a.y;
-      const len = Math.hypot(dx, dy) || 1;
-      const tilt = (rand() - 0.5) * 0.6;
-      for (let k = 0; k < 3; k++) {
-        const t = rand();
-        const cx = a.x + dx * t + (rand() - 0.5) * w * 0.6;
-        const cy = a.y + dy * t + (rand() - 0.5) * w * 0.6;
-        // Ticks presentes e irregulares (0.5–2.2w) con 2 pesos
-        // (v11: 20% gruesos de acento, resto finos; taper por presión).
-        const Lh = w * (0.5 + rand() * 1.7);
-        // 20%: tick cruzado en segundo ángulo (crosshatch).
-        const cross = rand() < 0.2;
-        const accent = rand() < 0.2;
-        const s = Math.sin(tilt) * (cross ? -1 : 1);
-        const qx = (-dy / len) * Math.cos(tilt) - (dx / len) * s;
-        const qy = (-dy / len) * s + (dx / len) * Math.cos(tilt);
-        const pSeg = (a.p + b.p) / 2;
-        target.hairline(
-          cx - (qx * Lh) / 2,
-          cy - (qy * Lh) / 2,
-          cx + (qx * Lh) / 2,
-          cy + (qy * Lh) / 2,
-          Math.max(0.5, w * (accent ? 0.2 : 0.12) * (0.7 + 0.5 * pSeg)),
-          stroke.color,
-          stroke.opacity * (0.5 + rand() * 0.4),
-        );
-      }
-    }
-    return;
-  }
-
-  // smudge: DIFUMINO (v11 mezcla real). `smear` arrastra píxeles YA
-  // pintados (sobre papel vacío casi no se ve: es lo correcto); el halo
-  // + tono apagado + fibra se mantienen como base determinista.
-  // Orden fijo de RNG por pasada (determinismo por seed).
-  if (stroke.tool === "smudge") {
-    const S_ENV: readonly [number, number, number] = [0.9, 1.0, 0.9];
-    const dragAlpha = stroke.opacity * strokeNoiseFactor(rand, 0.25);
-    // Tono arrastrado: el pigmento se apaga al mezclarse con el papel.
-    const dragTone = shade(stroke.color, 0.85);
-    // El fieltro vaguea más que la mina (mano alzada, sin filo).
-    const wpts = handBend(ptsQ, rand, 0.25, 0.05);
-    const path = smoothedPath(wpts);
-    const m = pathMetrics(wpts);
-    // Halo de fieltro: el tortillón es más ancho que la mina que funde.
-    for (const [a, b] of path) {
-      target.segment(
-        a.x,
-        a.y,
-        b.x,
-        b.y,
-        a.w * 3.2,
-        b.w * 3.2,
-        canvas.background,
-        dragAlpha * 0.045,
-      );
-      target.segment(
-        a.x,
-        a.y,
-        b.x,
-        b.y,
-        a.w * 2.0,
-        b.w * 2.0,
-        canvas.background,
-        dragAlpha * 0.06,
-      );
-    }
-    // Mezcla real: arrastra lo ya pintado a lo largo del trazo.
-    for (const [a, b] of path) {
-      target.smear(
-        a.x,
-        a.y,
-        b.x,
-        b.y,
-        ((a.w + b.w) / 2) * 2.0,
-        Math.min(0.3, dragAlpha * 0.18),
-      );
-    }
-    // Arrastre: núcleo del tono apagado, más visible donde se apretó.
-    for (const [a, b] of path) {
-      const pSeg = (a.p + b.p) / 2;
-      target.segment(
-        a.x,
-        a.y,
-        b.x,
-        b.y,
-        a.w * 1.2,
-        b.w * 1.2,
-        dragTone,
-        Math.min(1, dragAlpha * (0.03 + 0.08 * pSeg)),
-      );
-    }
-    // Fibra del tortillón: rieles longitudinales tenues, mitad papel.
-    for (const [a, b] of path) {
-      const dx = b.x - a.x;
-      const dy = b.y - a.y;
-      const len = Math.hypot(dx, dy) || 1;
-      const nx = -dy / len;
-      const ny = dx / len;
-      const w = (a.w + b.w) / 2;
-      for (const s of [-0.2, 0.2]) {
-        const pale = rand() < 0.5;
-        target.hairline(
-          a.x + nx * w * s,
-          a.y + ny * w * s,
-          b.x + nx * w * s,
-          b.y + ny * w * s,
-          Math.max(0.5, w * 0.12),
-          pale ? canvas.background : dragTone,
-          dragAlpha * 0.07,
-        );
-      }
-    }
-    // Esponjado: mucho papel a la vista (es difumino, no mina).
-    grainField(target, canvas, wpts, m, rand, dragTone, dragAlpha, {
-      stepMul: 0.35,
-      density: 2,
-      cap: 300,
-      radius: 0.16,
-      radiusJitter: 1.2,
-      spread: 0.6,
-      alphaMin: 0.05,
-      alphaSpan: 0.07,
-      drySkip: 0.1,
-      tooth: 0.55,
-      gate: 1.2,
-      fuzz: 1.0,
-      tiltAmt: 0.6,
-      pressure: S_ENV,
-    });
-    return;
-  }
-
   // cpencil: FIBRA de fieltro. Abanico de 6 micro-líneas paralelas con
   // jitter propio y calvas secas por cerda (no puntos): la textura son
   // líneas, no motas. Alguna cerda sale color papel (fibra gastada).
@@ -1264,41 +715,6 @@ export function renderStroke(
         );
       }
     }
-    return;
-  }
-
-  // Familia seca de NÚCLEO + grano (graphite, pencil, 2b, 2h) y
-  // carboncillo de TROZOS (chunk). Desconocido → grafito.
-  // graphite: POLVO fino preciso (port fiel p5.brush `HB` v10). PURO
-  // ESTIPULADO, sin línea núcleo: la cobertura sale de motas densas
-  // solapadas a alfa plana; el diente de papel asoma entre motas.
-  if (stroke.tool === "graphite") {
-    const P = P5.graphite;
-    const L = lorentzFor(rand, P);
-    const alpha = stroke.opacity * strokeNoiseFactor(rand, 0.3);
-    const wpts = handBend(pts, rand, 0.085, 0.07);
-    const m = pathMetrics(wpts);
-    const A = (P.opacity / 255) * alpha;
-    grainField(target, canvas, wpts, m, rand, stroke.color, alpha, {
-      stepMul: 0.22,
-      density: 2,
-      cap: 600,
-      radius: 0.14,
-      radiusJitter: 0.3,
-      spread: 0.5,
-      alphaMin: A * 0.85,
-      alphaSpan: A * 0.3,
-      drySkip: 0,
-      tooth: 0.25,
-      gate: Math.min(1, P.grain * 0.25),
-      fuzz: 1 - P.sharp,
-      tiltAmt: 0.8,
-      pressure: [1.0, 1.0, 1.0],
-      lorentz: L,
-      texture: true,
-      toneDark: shade(stroke.color, 0.55),
-      toneLight: tint(stroke.color, 0.35),
-    });
     return;
   }
 
@@ -1395,334 +811,6 @@ export function renderStroke(
       tiltAmt: 0.3,
       pressure: PENCIL_ENV,
     });
-    return;
-  }
-
-  // 2b: BLANDO (port fiel p5.brush `2B` v10). Mancha gorda por
-  // ESTIPULADO denso y esponjoso (definition 0.1), sin halos suaves:
-  // el ahumado sale del scatter amplio, no del aerógrafo. Decrescendo
-  // por Lorentz [1.3,1] (arranca grueso, termina fino).
-  if (stroke.tool === "2b") {
-    const P = P5["2b"];
-    const L = lorentzFor(rand, P);
-    const alpha = stroke.opacity * strokeNoiseFactor(rand, 0.3);
-    const wpts = handBend(pts, rand, 0.12, 0.06);
-    const m = pathMetrics(wpts);
-    const A = (P.opacity / 255) * alpha;
-    grainField(target, canvas, wpts, m, rand, stroke.color, alpha, {
-      stepMul: 0.18,
-      density: 3,
-      cap: 700,
-      radius: 0.16,
-      radiusJitter: 0.3,
-      spread: 0.5,
-      alphaMin: A * 0.85,
-      alphaSpan: A * 0.3,
-      drySkip: 0,
-      tooth: 0.15,
-      gate: Math.min(1, P.grain * 0.25),
-      fuzz: 1 - P.sharp,
-      tiltAmt: 0.9,
-      pressure: [1.0, 1.0, 1.0],
-      lorentz: L,
-      texture: true,
-      toneDark: shade(stroke.color, 0.5),
-      toneLight: tint(stroke.color, 0.3),
-    });
-    return;
-  }
-
-  // 2h: DURO de construcción (port fiel p5.brush `2H` v10). RALO y
-  // tenue SIEMPRE: alfa capada a 0.5 (un H no llega a oscuro) y puerta
-  // de grano al 50%: el trazo se lee punteado fino, nunca hairline
-  // vectorial. Sin temblor, sin blanco: precisión de punta duradera.
-  if (stroke.tool === "2h") {
-    const P = P5["2h"];
-    const L = lorentzFor(rand, P);
-    const alpha = Math.min(0.5, stroke.opacity) * strokeNoiseFactor(rand, 0.3);
-    const wpts = pts;
-    const m = pathMetrics(wpts);
-    const A = (P.opacity / 255) * alpha;
-    grainField(target, canvas, wpts, m, rand, stroke.color, alpha, {
-      stepMul: 0.18,
-      density: 1,
-      cap: 200,
-      radius: 0.09,
-      radiusJitter: 0.3,
-      spread: 0.4,
-      alphaMin: A * 0.85,
-      alphaSpan: A * 0.3,
-      drySkip: 0,
-      tooth: 0,
-      gate: Math.min(1, P.grain * 0.25),
-      fuzz: 1 - P.sharp,
-      tiltAmt: 0,
-      pressure: [1.0, 1.0, 1.0],
-      lorentz: L,
-      texture: true,
-      toneDark: shade(stroke.color, 0.7),
-      toneLight: tint(stroke.color, 0.5),
-    });
-    // v11: brillo plateado del H duro — motas claras ralas al centro,
-    // sin blancos ni hairlines (sigue siendo estipulado tenue).
-    const sheen = tint(stroke.color, 0.5);
-    const sheenN = Math.min(
-      40,
-      Math.max(6, Math.floor(m.total / Math.max(1, m.avgW * 1.2))),
-    );
-    for (let s = 0; s < sheenN; s++) {
-      if (rand() < 0.5) continue;
-      const d = m.total > 0 ? ((s + 0.5) / sheenN) * m.total : 0;
-      const c = sampleAtDistance(wpts, m.cum, d);
-      target.stamp(
-        c.x + (rand() - 0.5) * c.w * 0.3,
-        c.y + (rand() - 0.5) * c.w * 0.3,
-        Math.max(0.3, c.w * 0.06),
-        sheen,
-        Math.min(0.3, A * 0.5),
-      );
-    }
-    return;
-  }
-
-  // charcoal: VINE + COMPRESSED (port fiel p5.brush `charcoal` v10).
-  // Estipulado DENSO puro (puerta siempre abierta), sin halos suaves:
-  // lo ahumado sale del scatter amplio, no del aerógrafo. Toque leve =
-  // vine (polvo amplio tenue); presión = compressed (trozos densos
-  // negros mate). Trozos grandes + lifts de goma. Sin discos blancos.
-  if (stroke.tool === "charcoal") {
-    const P = P5.charcoal;
-    const L = lorentzFor(rand, P);
-    const alpha = stroke.opacity * strokeNoiseFactor(rand, 0.3);
-    const wpts = handBend(pts, rand, 0.2, 0.05);
-    const m = pathMetrics(wpts);
-    const A = (P.opacity / 255) * alpha;
-    grainField(target, canvas, wpts, m, rand, stroke.color, alpha, {
-      stepMul: 0.05,
-      density: 3,
-      cap: 900,
-      radius: 0.23,
-      radiusJitter: 0.3,
-      spread: 2.0,
-      alphaMin: A * 0.85,
-      alphaSpan: A * 0.3,
-      drySkip: 0.1,
-      tooth: 0.35,
-      gate: Math.min(1, P.grain * 0.25),
-      fuzz: 1 - P.sharp,
-      tiltAmt: 1.0,
-      pressure: [1.0, 1.0, 1.0],
-      lorentz: L,
-      texture: true,
-      toneDark: shade(stroke.color, 0.5),
-      toneLight: tint(stroke.color, 0.3),
-    });
-    // S4: grano DENSO (spacing ~0.14w como el charcoal original) con un
-    // trozo grande cada ~8 motas + dispersión gaussiana + jitter de alfa.
-    const step = Math.max(1, m.avgW * 0.14);
-    const marks = Math.min(
-      600,
-      Math.max(wpts.length, Math.round((m.total / step) * 2), 8),
-    );
-    for (let g = 0; g < marks; g++) {
-      const d = m.total > 0 ? ((g + 0.5) / marks) * m.total : 0;
-      const c = sampleAtDistance(wpts, m.cum, d);
-      const envW = c.w * lorentzAt(m, d, L) * tiltW(c.t, 1.0);
-      const dir = dirAt(wpts, m.cum, d);
-      const nx = -Math.sin(dir);
-      const ny = Math.cos(dir);
-      const gauss = (rand() + rand() + rand() - 1.5) / 1.5;
-      const offP = gauss * envW * 0.9 * (0.35 + 0.8);
-      const offA = (rand() * 2 - 1) * envW * 0.9 * 0.3;
-      const skip = rand() < 0.18;
-      // D4: toque leve = menos trozos.
-      const gate = rand() >= Math.min(1, 1.6 * (0.25 + 0.75 * c.p));
-      // Vine (leve) = polvo amplio tenue; compressed (fuerte) = denso negro.
-      const vine = c.p < 0.5;
-      const rMul = vine ? 1.3 : 0.9;
-      const aMul = vine ? 0.6 : 1.2;
-      // S5: jitter de alfa por mota.
-      const a2 =
-        Math.min(
-          1,
-          (0.22 + rand() * 0.3) * (0.6 + 0.4 * alpha) * (0.75 + rand() * 0.35),
-        ) * aMul;
-      if (skip || gate) continue;
-      // Papel: inverso a presión y siempre mota pequeña. Los trozos
-      // grandes nunca salen blancos (serían discos).
-      const paper = rand() < 0.4 * (1.3 - c.p);
-      const col = paper ? canvas.background : stroke.color;
-      const cx = c.x + nx * offP + Math.cos(dir) * offA;
-      const cy = c.y + ny * offP + Math.sin(dir) * offA;
-      if (g % 8 === 7 && !paper) {
-        // v11: trozo excéntrico irregular (astilla real, no óvalo limpio).
-        const rx = Math.max(0.5, envW * (0.5 + rand() * 0.8) * rMul);
-        const squash = 0.25 + rand() * 0.65;
-        target.stampEllipse(
-          cx,
-          cy,
-          rx,
-          Math.max(0.4, rx * squash),
-          rand() * Math.PI,
-          col,
-          Math.min(1, a2),
-        );
-      } else {
-        target.stamp(
-          cx,
-          cy,
-          Math.max(
-            0.3,
-            envW * (0.2 + rand() * 0.25) * rMul * (paper ? 0.4 : 1),
-          ),
-          col,
-          paper ? Math.min(1, a2 * 1.2) * 0.5 : Math.min(1, a2 * 1.2),
-        );
-      }
-    }
-    // Lifts de goma de borrar: grandes, tenues, con residuo. Luz por
-    // sustracción, no papel recortado: alfa ≤0.09.
-    const lifts = Math.max(1, Math.floor(m.total / Math.max(1, m.avgW * 6)));
-    for (let l = 0; l < lifts; l++) {
-      const d = m.total > 0 ? ((l + 0.5) / lifts) * m.total : 0;
-      const c = sampleAtDistance(wpts, m.cum, d);
-      const envW = c.w * lorentzAt(m, d, L);
-      target.stampEllipse(
-        c.x + (rand() - 0.5) * envW,
-        c.y + (rand() - 0.5) * envW,
-        envW * (2 + rand()),
-        envW * (1.2 + rand() * 0.8),
-        rand() * Math.PI,
-        canvas.background,
-        0.05 + rand() * 0.04,
-      );
-    }
-    return;
-  }
-
-  // watercolor: ACUARELA (wash retunado v10). Charco MUY translúcido
-  // (5 pasadas anchas al 0.06: la luz es el papel entre lavados) + FILO
-  // OSCURO marcado por pooling en bordes + granulación de pigmento +
-  // blooms de backrun. Sin blanco: solo el papel que se deja ver.
-  if (stroke.tool === "watercolor") {
-    const W_ENV: readonly [number, number, number] = [0.8, 1.1, 0.9];
-    const washAlpha =
-      Math.min(1, stroke.opacity) * strokeNoiseFactor(rand, 0.15);
-    const edge = shade(stroke.color, 0.6);
-    const deep = shade(stroke.color, 0.7);
-    const wpts = handBend(pts, rand, 0.15, 0.06);
-    const path = smoothedPath(wpts);
-    const m = pathMetrics(wpts);
-    // Charco: 4 pasadas anchas muy tenues ligeramente desfasadas
-    // (v11: una menos que v10 para compensar la floculación extra).
-    for (let pass = 0; pass < 4; pass++) {
-      let acc = 0;
-      for (const [a, b] of path) {
-        const segLen = Math.hypot(b.x - a.x, b.y - a.y);
-        const env = envelopeAt(m, acc + segLen / 2, W_ENV);
-        acc += segLen;
-        const w = ((a.w + b.w) / 2) * env;
-        const jx = (rand() - 0.5) * w * 0.14 * pass;
-        const jy = (rand() - 0.5) * w * 0.14 * pass;
-        target.segment(
-          a.x + jx,
-          a.y + jy,
-          b.x + jx,
-          b.y + jy,
-          a.w * 2.0 * env,
-          b.w * 2.0 * env,
-          stroke.color,
-          washAlpha * 0.06,
-        );
-      }
-    }
-    // Granulación: pigmento que se asienta dentro del charco, en
-    // flóculos (v11: 30% con 2 satélites cercanos = fotorealista).
-    const n = Math.min(
-      200,
-      Math.max(12, Math.floor(m.total / Math.max(1, m.avgW * 0.4))),
-    );
-    for (let s = 0; s < n; s++) {
-      const d = m.total > 0 ? ((s + 0.5) / n) * m.total : 0;
-      const c = sampleAtDistance(wpts, m.cum, d);
-      const dir = dirAt(wpts, m.cum, d);
-      const gauss = (rand() + rand() + rand() - 1.5) / 1.5;
-      const off = gauss * c.w * 0.5;
-      const dark = rand() < 0.12;
-      const gx = c.x + -Math.sin(dir) * off;
-      const gy = c.y + Math.cos(dir) * off;
-      const grx = Math.max(0.4, c.w * (0.15 + rand() * 0.25));
-      const gry = Math.max(0.3, c.w * (0.1 + rand() * 0.2));
-      const grot = rand() * Math.PI;
-      const gcol = dark ? deep : stroke.color;
-      const galpha = washAlpha * (0.15 + rand() * 0.2) * (0.75 + rand() * 0.35);
-      target.stampEllipse(gx, gy, grx, gry, grot, gcol, galpha);
-      if (rand() < 0.3) {
-        for (let k = 0; k < 2; k++) {
-          target.stampEllipse(
-            gx + (rand() - 0.5) * grx * 1.6,
-            gy + (rand() - 0.5) * gry * 1.6,
-            Math.max(0.3, grx * 0.45),
-            Math.max(0.25, gry * 0.45),
-            grot + (rand() - 0.5) * 0.6,
-            gcol,
-            galpha * 0.8,
-          );
-        }
-      }
-    }
-    // Filo oscuro irregular: el pigmento migra a los bordes al secar
-    // (v11: ancho/alfa con jitter = coffee-ring real, no línea vector).
-    for (const [a, b] of path) {
-      const w = (a.w + b.w) / 2;
-      const dx = b.x - a.x;
-      const dy = b.y - a.y;
-      const len = Math.hypot(dx, dy) || 1;
-      const nx = -dy / len;
-      const ny = dx / len;
-      for (const s of [-0.45, 0.45]) {
-        const wj = 0.07 + rand() * 0.05;
-        target.hairline(
-          a.x + nx * w * s,
-          a.y + ny * w * s,
-          b.x + nx * w * s,
-          b.y + ny * w * s,
-          Math.max(0.5, w * wj),
-          rand() < 0.25 ? deep : edge,
-          Math.min(1, washAlpha * (0.6 + rand() * 0.35)),
-        );
-      }
-    }
-    // Blooms de backrun: anillo irregular oscuro + centro pálido donde
-    // el agua empujó el pigmento. LA firma de la acuarela.
-    const blooms = Math.max(1, Math.floor(m.total / Math.max(1, m.avgW * 7)));
-    for (let b = 0; b < blooms; b++) {
-      const d =
-        m.total > 0 ? ((b + 0.5 + rand() * 0.5) / (blooms + 0.5)) * m.total : 0;
-      const c = sampleAtDistance(wpts, m.cum, d);
-      const ringR = c.w * (1.5 + rand());
-      const petals = 8 + Math.floor(rand() * 7);
-      for (let k = 0; k < petals; k++) {
-        const ang = (k / petals) * Math.PI * 2 + rand() * 0.5;
-        const rr = ringR * (0.8 + rand() * 0.4);
-        target.stamp(
-          c.x + Math.cos(ang) * rr,
-          c.y + Math.sin(ang) * rr,
-          Math.max(0.3, c.w * (0.1 + rand() * 0.15)),
-          stroke.color,
-          washAlpha * 0.2 * (0.75 + rand() * 0.35),
-        );
-      }
-      target.stampEllipse(
-        c.x,
-        c.y,
-        ringR * 0.8,
-        ringR * 0.6,
-        rand() * Math.PI,
-        canvas.background,
-        0.06 + rand() * 0.04,
-      );
-    }
     return;
   }
 }
