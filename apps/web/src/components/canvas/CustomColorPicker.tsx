@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 function clamp(n: number, min: number, max: number): number {
@@ -100,33 +99,53 @@ interface CustomColorPickerProps {
   onChange: (hex: string) => void;
   /** true si el color actual es uno de los presets (el picker muestra arcoíris). */
   presetActive: boolean;
+  /** Muestra el editor en flujo dentro del menú en vez de popup absoluto. */
+  inline?: boolean;
+  /** Abre el editor al montar (para mostrarlo directo en el menú). */
+  startOpen?: boolean;
+  /** Avisar al cerrar con Escape o toque fuera (para cerrar el menú). */
+  onClose?: () => void;
+  /** Opacidad del trazo (0-1) para el slider de transparencia. */
+  opacity: number;
+  onOpacityChange: (opacity: number) => void;
 }
 
 export function CustomColorPicker({
   value,
   onChange,
   presetActive,
+  inline = false,
+  startOpen = false,
+  onClose,
+  opacity,
+  onOpacityChange,
 }: CustomColorPickerProps): React.JSX.Element {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(startOpen);
   const wrapRef = useRef<HTMLDivElement>(null);
   const svRef = useRef<HTMLDivElement>(null);
   const hueRef = useRef<HTMLDivElement>(null);
   const dragging = useRef<"sv" | "hue" | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   const { h, s, v } = valueToHsv(value);
   const hueRgb = hsvToRgb(h, 100, 100);
   const hueHex = rgbToHex(hueRgb.r, hueRgb.g, hueRgb.b);
-  const rgb = hexToRgb(value) ?? { r: 0, g: 0, b: 0 };
+  const previewRgb = hexToRgb(value) ?? { r: 0, g: 0, b: 0 };
 
   useEffect(() => {
     if (!open) return;
     const onDown = (e: PointerEvent): void => {
       if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
         setOpen(false);
+        onCloseRef.current?.();
       }
     };
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") {
+        setOpen(false);
+        onCloseRef.current?.();
+      }
     };
     document.addEventListener("pointerdown", onDown);
     document.addEventListener("keydown", onKey);
@@ -180,47 +199,44 @@ export function CustomColorPicker({
     };
   }, [open, pickSv, pickHue]);
 
-  const commitRgb = (part: "r" | "g" | "b", raw: string): void => {
-    const n = Number(raw);
-    if (!Number.isFinite(n)) return;
-    const next = { ...rgb, [part]: clamp(Math.round(n), 0, 255) };
-    onChange(rgbToHex(next.r, next.g, next.b));
-  };
-
-  const commitHex = (raw: string): void => {
-    const clean = raw.trim().startsWith("#") ? raw.trim() : `#${raw.trim()}`;
-    if (hexToRgb(clean)) onChange(clean.toLowerCase());
-  };
-
   return (
-    <div ref={wrapRef} className="relative flex shrink-0">
-      <button
-        type="button"
-        title="Color personalizado"
-        aria-label="Color personalizado"
-        aria-expanded={open}
-        aria-pressed={!presetActive}
-        onClick={() => setOpen((o) => !o)}
-        className={cn(
-          "size-7 shrink-0 rounded-full border transition-transform",
-          !presetActive
-            ? "scale-110 border-ring ring-2 ring-ring/40"
-            : "border-border",
-        )}
-        style={
-          presetActive
-            ? {
-                background:
-                  "conic-gradient(#f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00)",
-              }
-            : { backgroundColor: value }
-        }
-      />
+    <div
+      ref={wrapRef}
+      className={inline ? "block w-full" : "relative flex shrink-0"}
+    >
+      {(!inline || !open) && (
+        <button
+          type="button"
+          title="Color personalizado"
+          aria-label="Color personalizado"
+          aria-expanded={open}
+          aria-pressed={!presetActive}
+          onClick={() => setOpen((o) => !o)}
+          className={cn(
+            "size-7 shrink-0 rounded-full border transition-transform",
+            !presetActive
+              ? "scale-110 border-ring ring-2 ring-ring/40"
+              : "border-border",
+          )}
+          style={
+            presetActive
+              ? {
+                  background:
+                    "conic-gradient(#f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00)",
+                }
+              : { backgroundColor: value }
+          }
+        />
+      )}
       {open && (
         <div
           role="dialog"
           aria-label="Selector de color personalizado"
-          className="absolute top-full left-0 z-50 mt-2 w-60 rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-md"
+          className={
+            inline
+              ? "static mt-2 w-full rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-md"
+              : "absolute top-full left-0 z-50 mt-2 w-60 rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-md"
+          }
         >
           <div
             ref={svRef}
@@ -316,53 +332,44 @@ export function CustomColorPicker({
               />
             </div>
           </div>
-          <div className="mt-3 grid grid-cols-3 gap-2">
-            {(["r", "g", "b"] as const).map((part) => (
-              <label
-                key={part}
-                htmlFor={`custom-color-${part}`}
-                className="flex flex-col items-center gap-1 text-xs text-muted-foreground uppercase"
-              >
-                <Input
-                  id={`custom-color-${part}`}
-                  key={`${part}-${rgb[part]}`}
-                  defaultValue={rgb[part]}
-                  inputMode="numeric"
-                  aria-label={`Componente ${part.toUpperCase()}`}
-                  className="h-8 text-center tabular-nums"
-                  onBlur={(e) => commitRgb(part, e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      commitRgb(part, e.currentTarget.value);
-                      e.currentTarget.blur();
-                    }
-                  }}
-                />
-                {part.toUpperCase()}
-              </label>
-            ))}
-          </div>
-          <label
-            htmlFor="custom-color-hex"
-            className="mt-2 flex items-center gap-2 text-xs text-muted-foreground"
-          >
-            Hex
-            <Input
-              id="custom-color-hex"
-              key={value}
-              defaultValue={value}
-              aria-label="Color en hexadecimal"
-              spellCheck={false}
-              className="h-8 font-mono lowercase"
-              onBlur={(e) => commitHex(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  commitHex(e.currentTarget.value);
-                  e.currentTarget.blur();
-                }
+          <div className="mt-3 flex items-center gap-2">
+            <span
+              aria-hidden
+              title="Vista previa"
+              className="size-7 shrink-0 rounded-full border border-border"
+              style={{
+                background: `linear-gradient(rgba(${previewRgb.r}, ${previewRgb.g}, ${previewRgb.b}, ${opacity}), rgba(${previewRgb.r}, ${previewRgb.g}, ${previewRgb.b}, ${opacity})), conic-gradient(#d1d5db 25%, #ffffff 0 50%, #d1d5db 0 75%, #ffffff 0)`,
+                backgroundSize: "auto, 10px 10px",
               }}
             />
-          </label>
+            <span className="relative flex h-5 flex-1 items-center">
+              <span
+                aria-hidden
+                className="absolute inset-x-0 h-2.5 rounded-full"
+                style={{
+                  background: `linear-gradient(to right, rgba(${previewRgb.r}, ${previewRgb.g}, ${previewRgb.b}, 0.05), rgb(${previewRgb.r}, ${previewRgb.g}, ${previewRgb.b})), conic-gradient(#d1d5db 25%, #ffffff 0 50%, #d1d5db 0 75%, #ffffff 0)`,
+                  backgroundSize: "auto, 8px 8px",
+                }}
+              />
+              <input
+                type="range"
+                min={5}
+                max={100}
+                step={1}
+                value={Math.round(opacity * 100)}
+                aria-label="Opacidad del trazo"
+                onChange={(e) =>
+                  onOpacityChange(
+                    Math.round(Number(e.target.value)) / 100,
+                  )
+                }
+                className="relative h-5 w-full cursor-pointer appearance-none bg-transparent [&::-moz-range-thumb]:size-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-white [&::-moz-range-thumb]:bg-white/90 [&::-moz-range-thumb]:shadow-[0_0_0_1px_rgba(0,0,0,0.4)] [&::-moz-range-track]:h-2.5 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-transparent [&::-webkit-slider-runnable-track]:h-2.5 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-transparent [&::-webkit-slider-thumb]:mt-[-3px] [&::-webkit-slider-thumb]:size-4 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:bg-white/90 [&::-webkit-slider-thumb]:shadow-[0_0_0_1px_rgba(0,0,0,0.4)]"
+              />
+            </span>
+            <span className="w-10 shrink-0 text-right text-xs text-muted-foreground tabular-nums">
+              {Math.round(opacity * 100)}%
+            </span>
+          </div>
         </div>
       )}
     </div>
