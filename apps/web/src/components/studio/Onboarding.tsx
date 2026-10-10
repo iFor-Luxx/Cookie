@@ -1,4 +1,4 @@
-import { ScanLine } from "lucide-react";
+import { ArrowRight, ScanLine } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,6 +16,7 @@ import { loginQrPayload } from "@/lib/invite-qr";
 import { loadLastSpaceId } from "@/lib/last-space";
 import { usePrefersDark } from "@/lib/use-prefers-dark";
 import { cn } from "@/lib/utils";
+import { transitionTo } from "@/lib/view-transition";
 import { InviteQr } from "./InviteQr";
 import { SkyBackground } from "./SkyBackground";
 import { BrandWipe } from "./wipe/BrandWipe";
@@ -35,6 +36,8 @@ export function Onboarding({
   // "Comenzar", un barrido revela el formulario ya montado detrás.
   const [started, setStarted] = useState(false);
   const [wiping, setWiping] = useState(false);
+  // Bienvenida tras el wipe: antes del formulario.
+  const [welcomed, setWelcomed] = useState(false);
   const dark = usePrefersDark();
   const [phase, setPhase] = useState(0);
   const [reducedMotion] = useState(
@@ -118,7 +121,9 @@ export function Onboarding({
     setAttempt(null);
     try {
       const res = await api.createLoginAttempt();
-      setAttempt({ attemptId: res.attemptId, code: res.loginCode });
+      transitionTo(() =>
+        setAttempt({ attemptId: res.attemptId, code: res.loginCode }),
+      );
     } catch (e) {
       setAttemptError(
         e instanceof ApiError ? e.message : "No se pudo generar el QR",
@@ -233,8 +238,38 @@ export function Onboarding({
             </Button>
           </div>
         </div>
+      ) : !welcomed ? (
+        <div
+          className={cn(
+            "flex flex-col items-center gap-8 text-center",
+            !reducedMotion && "animate-[rise-in_0.6s_ease-out_both]",
+          )}
+        >
+          {" "}
+          <div className="flex flex-col gap-2">
+            <h1 className="font-serif text-6xl leading-tight text-foreground">
+              Bienvenido
+            </h1>
+            <p className="text-base text-foreground/80">
+              Unos cuantos pasos antes de empezar.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => transitionTo(() => setWelcomed(true))}
+            aria-label="Continuar al registro"
+            className="liquid-glass flex size-14 items-center justify-center rounded-full text-slate-800 transition-transform hover:scale-105 active:scale-95 dark:text-white"
+          >
+            <ArrowRight className="size-6" aria-hidden />
+          </button>
+        </div>
       ) : (
-        <Card className="relative w-full max-w-sm">
+        <Card
+          className={cn(
+            "liquid-glass-card relative w-full max-w-sm",
+            !reducedMotion && "animate-[rise-in_0.5s_ease-out_both]",
+          )}
+        >
           <CardHeader>
             <p className="font-pixel text-xs tracking-widest text-muted-foreground uppercase">
               Cookie
@@ -276,10 +311,12 @@ export function Onboarding({
                   </Button>
                   <Button
                     variant="secondary"
-                    onClick={() => {
-                      setAttempt(null);
-                      setAttemptError(null);
-                    }}
+                    onClick={() =>
+                      transitionTo(() => {
+                        setAttempt(null);
+                        setAttemptError(null);
+                      })
+                    }
                   >
                     Volver
                   </Button>
@@ -315,7 +352,7 @@ export function Onboarding({
                 </Button>
                 <button
                   type="button"
-                  onClick={() => setRecover(true)}
+                  onClick={() => transitionTo(() => setRecover(true))}
                   className="text-sm text-muted-foreground underline-offset-4 hover:underline"
                 >
                   Recuperar acceso en este dispositivo
@@ -352,7 +389,7 @@ export function Onboarding({
                 </Button>
                 <button
                   type="button"
-                  onClick={() => setRecover(false)}
+                  onClick={() => transitionTo(() => setRecover(false))}
                   className="text-sm text-muted-foreground underline-offset-4 hover:underline"
                 >
                   Volver

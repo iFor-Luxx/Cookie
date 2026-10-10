@@ -13,13 +13,19 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { ApiError, api } from "@/lib/api";
 import { inviteQrPayload, parseQrPayload } from "@/lib/invite-qr";
+import { usePrefersDark } from "@/lib/use-prefers-dark";
+import { transitionTo } from "@/lib/view-transition";
 import { InviteQr } from "./InviteQr";
 import { QrScanner } from "./QrScanner";
+import { SkyBackground } from "./SkyBackground";
 
 export function SpaceSetup({
   onDone,
+  onEnter,
 }: {
   onDone: (spaceId: string) => void;
+  /** Entrar tras crear: con barrido de salida. Si falta, entra directo. */
+  onEnter?: (spaceId: string) => void;
 }): React.JSX.Element {
   const [created, setCreated] = useState<{
     pairSpaceId: string;
@@ -31,13 +37,15 @@ export function SpaceSetup({
   const [showScanner, setShowScanner] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const dark = usePrefersDark();
+  const sky = <SkyBackground variant={dark ? "night" : "day"} />;
 
   const create = async (): Promise<void> => {
     setBusy(true);
     setError(null);
     try {
       const res = await api.createSpace();
-      setCreated(res);
+      transitionTo(() => setCreated(res));
       // QR inmediato: encadenar la invitación para mostrarla sin otro clic.
       try {
         const inv = await api.createInvite(res.pairSpaceId);
@@ -89,8 +97,9 @@ export function SpaceSetup({
 
   if (created) {
     return (
-      <main className="flex min-h-dvh items-center justify-center bg-background px-4">
-        <Card className="w-full max-w-md">
+      <main className="relative flex min-h-dvh items-center justify-center overflow-hidden bg-background px-4">
+        {sky}
+        <Card className="liquid-glass-card relative w-full max-w-md">
           <CardHeader>
             <CardTitle className="font-serif text-2xl">
               Guarda esto. En serio.
@@ -135,7 +144,9 @@ export function SpaceSetup({
                     )}
                     Copiar
                   </Button>
-                  <Button onClick={() => onDone(created.pairSpaceId)}>
+                  <Button
+                    onClick={() => (onEnter ?? onDone)(created.pairSpaceId)}
+                  >
                     Ya la compartí, entrar
                   </Button>
                 </div>
@@ -148,8 +159,9 @@ export function SpaceSetup({
   }
 
   return (
-    <main className="flex min-h-dvh items-center justify-center bg-background px-4">
-      <Card className="w-full max-w-sm">
+    <main className="relative flex min-h-dvh items-center justify-center overflow-hidden bg-background px-4">
+      {sky}
+      <Card className="liquid-glass-card relative w-full max-w-sm">
         <CardHeader>
           <CardTitle className="font-serif text-2xl">
             Tu espacio compartido

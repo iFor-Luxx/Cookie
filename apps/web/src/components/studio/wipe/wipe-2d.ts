@@ -1,9 +1,4 @@
-import {
-  sweepAxis,
-  type WipeParams,
-  wipeEdgeAt,
-  wipePolygonPoints,
-} from "./wipe-math";
+import { sweepAxis, type WipeParams, wipeEdgeAt } from "./wipe-math";
 
 export type Pt = readonly [number, number];
 
@@ -128,34 +123,18 @@ export function ribbonStrip(
 }
 
 /**
- * Un fotograma del barrido en canvas 2D: superficie (región aún no
- * barrida) + cinta Sky con borde de fbm, mármol por rebanadas y grano.
- * Donde no se pinta queda transparente y se ve el formulario detrás.
+ * Un fotograma de la cinta en canvas 2D: franja Sky con borde de fbm
+ * y mármol por rebanadas. No pinta superficie ni grano suelto: fuera
+ * de la franja queda transparente y se ven las pantallas de detrás.
  */
-export function drawWipeFrame(
+export function drawRibbonFrame(
   ctx: CanvasRenderingContext2D,
   w: number,
   h: number,
   params: WipeParams,
   eased: number,
-  surfaceCss: string,
 ): void {
   ctx.clearRect(0, 0, w, h);
-
-  // Superficie: polígono aún no barrido.
-  const kept = wipePolygonPoints(wipeEdgeAt(eased, params), params.angleDeg);
-  if (kept.length >= 3) {
-    ctx.beginPath();
-    kept.forEach(([x, y], i) => {
-      const px = x * w;
-      const py = y * h;
-      if (i === 0) ctx.moveTo(px, py);
-      else ctx.lineTo(px, py);
-    });
-    ctx.closePath();
-    ctx.fillStyle = surfaceCss;
-    ctx.fill();
-  }
 
   // Cinta por rebanadas: cada una lleva su propio gradiente con las
   // paradas desplazadas por un segundo campo de ruido, de modo que
@@ -193,18 +172,5 @@ export function drawWipeFrame(
     ctx.lineTo(d[0], d[1]);
     ctx.closePath();
     ctx.fill();
-  }
-
-  // Grano sutil sobre todo el plano.
-  const dots = Math.min(320, Math.floor((w * h) / 9000));
-  const size = Math.max(1, params.grainSize);
-  for (let k = 0; k < dots; k++) {
-    const x = hash1(k * 12.9898) * w;
-    const y = hash1(k * 78.233 + 0.5) * h;
-    const light = hash1(k * 37.719 + 0.25) > 0.5;
-    ctx.fillStyle = light
-      ? `rgba(255,255,255,${(hash1(k * 3.7) * params.grainAmount).toFixed(3)})`
-      : `rgba(0,0,0,${(hash1(k * 9.1 + 0.75) * params.grainAmount).toFixed(3)})`;
-    ctx.fillRect(x, y, size, size);
   }
 }

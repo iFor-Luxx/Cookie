@@ -1,55 +1,52 @@
 import { useEffect, useRef, useState } from "react";
 import { WipeCanvas, type WipeCanvasHandle } from "./WipeCanvas";
 import { WipeCanvas2d, type WipeCanvas2dHandle } from "./WipeCanvas2d";
-import { BRAND_WIPE, easeInOutCubic, inverseEaseInOutCubic } from "./wipe-math";
+import {
+  BRAND_WIPE,
+  easeInOutCubic,
+  inverseEaseInOutCubic,
+  sweptPolygonPoints,
+  wipeEdgeAt,
+  type WipeParams,
+} from "./wipe-math";
 
-/**
- * Color de superficie del tema tal cual (`oklch(...)` incluido): el
- * canvas 2D lo interpreta al asignarlo a `fillStyle`.
- */
-function resolveSurfaceCss(): string {
-  const css = getComputedStyle(document.documentElement)
-    .getPropertyValue("--background")
-    .trim();
-  return css || "#ffffff";
-}
-
-/** El mismo color de superficie en rgb 0..1 para el uniforme del shader. */
-function surfaceCssToRgb(css: string): [number, number, number] {
-  const canvas = document.createElement("canvas");
-  canvas.width = 1;
-  canvas.height = 1;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return [1, 1, 1];
-  ctx.fillStyle = "#ffffff";
-  ctx.fillStyle = css;
-  ctx.fillRect(0, 0, 1, 1);
-  const d = ctx.getImageData(0, 0, 1, 1).data;
-  return [(d[0] ?? 255) / 255, (d[1] ?? 255) / 255, (d[2] ?? 255) / 255];
+/** Recorta la capa `to` a la región ya barrida (vacía al inicio). */
+function applySweptClip(el: HTMLElement, eased: number, params: WipeParams): void {
+  const pts = sweptPolygonPoints(wipeEdgeAt(eased, params), params.angleDeg);
+  el.style.clipPath =
+    pts.length < 3
+      ? "polygon(0% 0%, 0% 0%, 0% 0%)"
+      : `polygon(${pts.map(([x, y]) => `${x * 100}% ${y * 100}%`).join(", ")})`;
 }
 
 /**
- * Transición de marca tras "Comenzar": la pantalla actual sigue visible
- * mientras se prepara el device; al estar listo se pinta el primer
- * fotograma opaco, se monta el formulario detrás (`onReveal`) y el
- * barrido Sky lo revela. Sin WebGPU —o si el device falla a mitad de
- * vuelo— el mismo barrido continúa en canvas 2D desde el progreso
- * exacto donde iba, sin parpadeo.
+ * Wipe verdadero entre dos pantallas, sin pantalla intermedia:
+ * - debajo, la pantalla actual viva (la sigue pintando el padre);
+ * - encima, la pantalla nueva recortada a lo ya barrido;
+ * - arriba del todo, solo la cinta Sky (transparente en el resto).
+ * Al pulsar todo se ve idéntico; el borde avanza trayendo la otra
+ * pantalla detrás; al terminar se desmonta el andamiaje. El blanco
+ * es imposible por construcción: nunca se pinta superficie.
  */
 export function BrandWipe({
-  onReveal,
+  to,
   onDone,
+  params = BRAND_WIPE,
 }: {
-  onReveal: () => void;
+  to: React.ReactNode;
   onDone: () => void;
+  params?: WipeParams;
 }): React.JSX.Element {
   const canvasRef = useRef<WipeCanvasHandle>(null);
   const canvas2dRef = useRef<WipeCanvas2dHandle>(null);
+  const toRef = useRef<HTMLDivElement>(null);
   const easedRef = useRef(0);
-  // null = preparando (se ve la pantalla actual); "shader" | "dom" = barriendo.
+  // null = preparando (se ve la pantalla actual intacta).
   const [mode, setMode] = useState<"shader" | "dom" | null>(null);
-  const callbacksRef = useRef({ onReveal, onDone });
-  callbacksRef.current = { onReveal, onDone };
+  const onDoneRef = useRef(onDone);
+  onDoneRef.current = onDone;
+  const paramsRef = useRef(params);
+  paramsRef.current = params;
 
   useEffect(() => {
     let raf = 0;
@@ -57,29 +54,32 @@ export function BrandWipe({
     // Generación del bucle: solo el bucle vigente pinta; al cambiar a
     // fallback los ticks viejos se retiran sin programar más.
     let gen = 0;
-    let revealed = false;
     let dom = false;
-    const reveal = (): void => {
-      if (!revealed) {
-        revealed = true;
-        callbacksRef.current.onReveal();
-      }
-    };
     const finish = (): void => {
-      if (!cancelled) callbacksRef.current.onDone();
+      if (!cancelled) onDoneRef.current();
     };
 
-    const startLoop = (frame: (eased: number) => void, fromEased = 0): void => {
+    const paint = (eased: number, wparams: WipeParams): void => {
+      const el = toRef.current;
+      if (el) applySweptClip(el, eased, wparams);
+    };
+
+    const startLoop = (
+      frame: (eased: number) => void,
+      fromEased = 0,
+    ): void => {
+      const wparams = paramsRef.current;
       const myGen = ++gen;
       const t0 =
         performance.now() -
-        inverseEaseInOutCubic(fromEased) * BRAND_WIPE.durationMs;
+        inverseEaseInOutCubic(fromEased) * wparams.durationMs;
       const tick = (now: number): void => {
         if (cancelled || myGen !== gen) return;
-        const t = Math.min(1, (now - t0) / BRAND_WIPE.durationMs);
+        const t = Math.min(1, (now - t0) / wparams.durationMs);
         const eased = easeInOutCubic(t);
         easedRef.current = eased;
         try {
+          paint(eased, wparams);
           frame(eased);
         } catch {
           toDom();
@@ -95,12 +95,10 @@ export function BrandWipe({
       if (cancelled || dom) return;
       dom = true;
       setMode("dom");
-      reveal();
-      const surfaceCss = resolveSurfaceCss();
-      // Primer fotograma 2D antes del paint: sin fotograma opaco.
-      canvas2dRef.current?.draw(BRAND_WIPE, easedRef.current, surfaceCss);
+      const wparams = paramsRef.current;
+      canvas2dRef.current?.draw(wparams, easedRef.current);
       startLoop(
-        (eased) => canvas2dRef.current?.draw(BRAND_WIPE, eased, surfaceCss),
+        (eased) => canvas2dRef.current?.draw(wparams, eased),
         easedRef.current,
       );
     };
@@ -121,21 +119,17 @@ export function BrandWipe({
       if (cancelled) return;
       const ok = winner?.type === "gpu" && winner.ok;
       if (ok) {
-        // Primer fotograma opaco antes de mostrar nada: el cambio de
-        // pantalla ocurre bajo una superficie ya pintada, sin flash.
-        const surface = surfaceCssToRgb(resolveSurfaceCss());
+        const wparams = paramsRef.current;
         try {
-          canvasRef.current?.draw(BRAND_WIPE, 0, surface);
+          paint(0, wparams);
+          canvasRef.current?.draw(wparams, 0);
         } catch {
           toDom();
           return;
         }
         setMode("shader");
-        reveal();
         canvasRef.current?.watchLost(toDom);
-        startLoop((eased) =>
-          canvasRef.current?.draw(BRAND_WIPE, eased, surface),
-        );
+        startLoop((eased) => canvasRef.current?.draw(wparams, eased));
       } else {
         toDom();
       }
@@ -150,12 +144,16 @@ export function BrandWipe({
 
   return (
     <div aria-hidden className="fixed inset-0 z-50">
-      {mode === "dom" && (
+      <div ref={toRef} className="absolute inset-0 overflow-hidden">
+        {to}
+      </div>
+      {mode === "dom" ? (
         <WipeCanvas2d ref={canvas2dRef} className="absolute inset-0" />
+      ) : (
+        /* Un solo canvas WebGPU siempre montado: si se desmontara al
+          cambiar de modo, el device se perdería. */
+        <WipeCanvas ref={canvasRef} className="absolute inset-0" />
       )}
-      {/* Un solo canvas WebGPU siempre montado: si se desmontara al
-        cambiar de modo, el device se perdería y el barrido no se vería. */}
-      <WipeCanvas ref={canvasRef} className="absolute inset-0" />
     </div>
   );
 }

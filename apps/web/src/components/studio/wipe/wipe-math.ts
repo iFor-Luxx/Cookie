@@ -41,6 +41,12 @@ export const BRAND_WIPE: WipeParams = {
   colors: ["#6366f1", "#38bdf8", "#67e8f9", "#e0f2fe"],
 };
 
+/**
+ * Salida al estudio: misma diagonal en sentido contrario (135°,
+ * de arriba/abajo), mismos colores y duración.
+ */
+export const EXIT_WIPE: WipeParams = { ...BRAND_WIPE, angleDeg: 135 };
+
 export function easeInOutCubic(t: number): number {
   const c = t < 0 ? 0 : t > 1 ? 1 : t;
   return c < 0.5 ? 4 * c * c * c : 1 - (-2 * c + 2) ** 3 / 2;
@@ -114,6 +120,40 @@ export function wipePolygonPoints(
     const db = depth(b);
     if (da >= 0) kept.push([a[0], a[1]]);
     if (da >= 0 !== db >= 0) {
+      const t = da / (da - db);
+      kept.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
+    }
+  }
+  return kept.length < 3 ? [] : kept;
+}
+
+/**
+ * Región YA barrida (complemento de `wipePolygonPoints`): donde la
+ * pantalla nueva ya asoma. Vacía al inicio, cuadrado completo al final.
+ */
+export function sweptPolygonPoints(
+  edge: number,
+  angleDeg: number,
+): Array<[number, number]> {
+  const { dir, bias } = sweepAxis(angleDeg);
+  const depth = (p: Point): number =>
+    p[0] * dir[0] + p[1] * dir[1] + bias - edge;
+
+  const square: readonly Point[] = [
+    [0, 0],
+    [1, 0],
+    [1, 1],
+    [0, 1],
+  ];
+  const kept: Array<[number, number]> = [];
+  for (let i = 0; i < square.length; i++) {
+    const a = square[i];
+    const b = square[(i + 1) % square.length];
+    if (!a || !b) continue;
+    const da = depth(a);
+    const db = depth(b);
+    if (da < 0) kept.push([a[0], a[1]]);
+    if (da < 0 !== db < 0) {
       const t = da / (da - db);
       kept.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
     }

@@ -2,14 +2,27 @@ import { describe, expect, it } from "vitest";
 import {
   BRAND_WIPE,
   easeInOutCubic,
+  EXIT_WIPE,
   hexToRgb,
   inverseEaseInOutCubic,
   sweepAxis,
+  sweptPolygonPoints,
   wipeClipPath,
   wipeEdgeAt,
 } from "./wipe-math";
 
 describe("wipe-math", () => {
+  it("salida al estudio: misma diagonal en sentido contrario", () => {
+    expect(EXIT_WIPE.angleDeg).toBe(135);
+    expect(EXIT_WIPE.colors).toEqual(BRAND_WIPE.colors);
+    expect(EXIT_WIPE.durationMs).toBe(BRAND_WIPE.durationMs);
+    // 135° viaja de sup-der a inf-izq (de arriba a abajo).
+    const { dir, bias } = sweepAxis(EXIT_WIPE.angleDeg);
+    const at = (x: number, y: number): number => x * dir[0] + y * dir[1] + bias;
+    expect(at(1, 0)).toBeCloseTo(0, 10);
+    expect(at(0, 1)).toBeCloseTo(1, 10);
+  });
+
   it("easing cúbico fija extremos y mitad", () => {
     expect(easeInOutCubic(0)).toBe(0);
     expect(easeInOutCubic(1)).toBe(1);
@@ -25,6 +38,15 @@ describe("wipe-math", () => {
         8,
       );
     }
+  });
+
+  it("barrido y sin-barrer son complementarios", () => {
+    // Al inicio nada barrido; al final todo (menos el filo).
+    expect(sweptPolygonPoints(-10, 315)).toEqual([]);
+    expect(sweptPolygonPoints(10, 315).length).toBe(4);
+    // A mitad, ambos son polígonos no triviales.
+    const edge = wipeEdgeAt(0.55, BRAND_WIPE);
+    expect(sweptPolygonPoints(edge, 315).length).toBeGreaterThanOrEqual(3);
   });
 
   it("eje de barrido 315° apunta a sup-der y cubre el cuadrado", () => {

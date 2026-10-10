@@ -2,9 +2,10 @@ import { hexToRgb, sweepAxis, type WipeParams } from "./wipe-math";
 
 /**
  * Barrido de marca en un solo fragment shader: borde turbulento con
- * cinta de gradiente Sky que escribe alfa premultiplicada en un canvas
- * transparente, de modo que el DOM de detrás se ve donde ya pasó.
- * La superficie es el color del tema (uniforme), no una textura.
+ * cinta de gradiente Sky que escribe alfa premultiplicada SOLO en la
+ * banda. El canvas es transparente en el resto: debajo van las
+ * pantallas vieja (sin recorte) y nueva (recortada a lo barrido).
+ * Al no pintar ninguna superficie, el blanco es imposible.
  */
 
 export const WIPE_WGSL = /* wgsl */ `
@@ -21,8 +22,6 @@ struct Params {
   grainSize: f32,
   grainAmount: f32,
   resolution: vec2f,
-  surface: vec3f,
-  _pad: f32,
   stops: array<vec4f, 4>,
 }
 
@@ -115,24 +114,26 @@ fn rampColor(t: f32) -> vec3f {
 @fragment fn fs_main(@location(0) uv: vec2f) -> @location(0) vec4f {
   let grain = grainAt(uv) * params.grainAmount;
   let s = wipeDistance(uv, params.progress);
-  let alpha = smoothstep(0.0, params.feather, s + grain * params.feather * 2.0);
+  // Fundido del filo revelado…
+  let edgeA = smoothstep(0.0, params.feather, s + grain * params.feather * 2.0);
+  // …mármol con campo independiente para no rayar…
   let swirl = (fbm(uv * 2.0 + vec2f(4.7, 8.1)) - 0.5) * params.swirl;
   let bandT = clamp(s / params.band + swirl, 0.0, 1.0);
-  let bandWeight = 1.0 - smoothstep(params.band * params.bleed, params.band, s);
-  let ground = clamp(params.surface * (1.0 + grain * 0.25), vec3f(0.0), vec3f(1.0));
+  // …y sangrado de vuelta a transparente en el filo superficie.
+  let bandW = 1.0 - smoothstep(params.band * params.bleed, params.band, s);
   let ribbon = clamp(rampColor(bandT) * (1.0 + grain * 0.5), vec3f(0.0), vec3f(1.0));
-  let rgb = mix(ground, ribbon, bandWeight);
-  return vec4f(rgb * alpha, alpha);
+  let a = edgeA * bandW;
+  // Premultiplicado y SOLO banda: fuera de ella, alfa cero.
+  return vec4f(ribbon * a, a);
 }
 `;
 
 /** Nº de f32 del uniforme. Sincronizado con `packParams`. */
-export const UNIFORM_FLOATS = 36;
+export const UNIFORM_FLOATS = 32;
 
 /**
  * Empaqueta los parámetros en el uniforme. Índices mantenidos a mano
- * contra el WGSL: `dir` en 0, `resolution` en 12, `surface` en 16,
- * `stops` en 20.
+ * contra el WGSL: `dir` en 0, `resolution` en 12, `stops` en 16.
  */
 export function packParams(
   out: Float32Array<ArrayBuffer>,
@@ -140,7 +141,6 @@ export function packParams(
   progress: number,
   width: number,
   height: number,
-  surface: readonly [number, number, number],
 ): Float32Array<ArrayBuffer> {
   const { dir, bias } = sweepAxis(params.angleDeg);
 
@@ -158,17 +158,13 @@ export function packParams(
   out[11] = params.grainAmount;
   out[12] = Math.max(width, 1);
   out[13] = Math.max(height, 1);
-  // 14, 15: relleno (surface necesita alineación de 16 bytes).
-  out[16] = surface[0];
-  out[17] = surface[1];
-  out[18] = surface[2];
-  // 19: relleno (stops arranca en la frontera de 16 bytes).
+  // 14, 15: relleno (`stops` necesita alineación de 16 bytes).
   for (let i = 0; i < 4; i++) {
     const [r, g, b] = hexToRgb(params.colors[i] ?? "#000000");
-    out[20 + i * 4] = r;
-    out[21 + i * 4] = g;
-    out[22 + i * 4] = b;
-    out[23 + i * 4] = 1;
+    out[16 + i * 4] = r;
+    out[17 + i * 4] = g;
+    out[18 + i * 4] = b;
+    out[19 + i * 4] = 1;
   }
   return out;
 }

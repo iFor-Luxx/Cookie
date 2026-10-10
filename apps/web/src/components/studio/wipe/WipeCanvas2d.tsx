@@ -1,14 +1,13 @@
 import { forwardRef, useImperativeHandle, useRef } from "react";
 import { cn } from "@/lib/utils";
-import { drawWipeFrame } from "./wipe-2d";
+import { drawRibbonFrame } from "./wipe-2d";
 import type { WipeParams } from "./wipe-math";
 
 /**
- * Fallback 2D del barrido (sin WebGPU): pinta superficie + cinta Sky
- * con borde ondulado en canvas 2D. Funciona en cualquier WebView.
+ * Cinta del fallback 2D (sin WebGPU). Transparente fuera de la franja.
  */
 export interface WipeCanvas2dHandle {
-  draw(params: WipeParams, eased: number, surfaceCss: string): void;
+  draw(params: WipeParams, eased: number): void;
 }
 
 export const WipeCanvas2d = forwardRef<
@@ -18,7 +17,7 @@ export const WipeCanvas2d = forwardRef<
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useImperativeHandle(ref, () => ({
-    draw(params, eased, surfaceCss) {
+    draw(params, eased) {
       const canvas = canvasRef.current;
       if (!canvas) return;
       const dpr = Math.min(globalThis.devicePixelRatio || 1, 1.5);
@@ -28,7 +27,7 @@ export const WipeCanvas2d = forwardRef<
       if (canvas.height !== height) canvas.height = height;
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
-      drawWipeFrame(ctx, width, height, params, eased, surfaceCss);
+      drawRibbonFrame(ctx, width, height, params, eased);
     },
   }));
 
