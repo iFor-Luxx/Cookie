@@ -63,11 +63,20 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths"></meta-data>
         </provider>
+
+        <!-- Actualizaciones propias (H-updates): el instalador del sistema
+             muestra el prompt; sin esto no se puede ni pedir el permiso. -->
+        <receiver
+            android:name=".updater.UpdateStatusReceiver"
+            android:exported="false" />
     </application>
 
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Instalación de updates propios vía PackageInstaller (Android 8+).
+         No es peligroso; el usuario concede "apps desconocidas" una vez. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- H9: cámara solo para escanear el QR de invitación (getUserMedia en
          WebView, con prompt del sistema). Sin esto el escáner usa el campo manual. -->
     <uses-permission android:name="android.permission.CAMERA" />
