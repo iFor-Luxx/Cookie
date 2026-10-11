@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError, api, type DrawingMeta } from "@/lib/api";
+import { receivedOnly } from "@/lib/received";
 
 export function History({
   spaceId,
@@ -37,10 +38,13 @@ export function History({
       setError(null);
       try {
         const res = await api.timeline(spaceId, c);
-        setItems((prev) => (c ? [...prev, ...res.drawings] : res.drawings));
+        // Solo recibidos: lo que yo envío no aparece en mi historial.
+        const mine = api.sessionInfo()?.userId ?? null;
+        const fresh = receivedOnly(res.drawings, mine);
+        setItems((prev) => (c ? [...prev, ...fresh] : fresh));
         setCursor(res.nextCursor);
         const entries = await Promise.all(
-          res.drawings.map(async (d) => {
+          fresh.map(async (d) => {
             try {
               const blob = await api.previewBytes(d.id);
               return [d.id, URL.createObjectURL(blob)] as const;
@@ -102,7 +106,7 @@ export function History({
       </div>
       {items.length === 0 && !loading && (
         <p className="text-center text-sm text-muted-foreground">
-          Aún no hay dibujos publicados. Dibuja algo y pulsa Publicar.
+          Aún no has recibido dibujos.
         </p>
       )}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">

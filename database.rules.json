@@ -1,0 +1,12 @@
+{
+  "rules": {
+    "releases": {
+      "android": {
+        "latest": {
+          ".read": true,
+          ".write": false
+        }
+      }
+    }
+  }
+}

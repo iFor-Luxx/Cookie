@@ -44,6 +44,7 @@ import { installDeepLinkListener } from "@/lib/deep-link";
 import { saveLastSpaceId } from "@/lib/last-space";
 import {
   installSessionMirror,
+  restoreNativeSession,
   setNativeSpace,
   uploadFcmTokenIfPresent,
 } from "@/lib/native-session";
@@ -136,21 +137,26 @@ export function App(): React.JSX.Element {
   }, []);
 
   useEffect(() => {
-    if (!api.loggedIn) {
-      setScreen("onboarding");
-      return;
-    }
-    api
-      .me()
-      .then((me) => {
-        if (me.pairSpaceId) {
-          setSpaceId(me.pairSpaceId);
-          setScreen("studio");
-        } else {
-          setScreen("setup");
-        }
-      })
-      .catch(() => setScreen("onboarding"));
+    // Android olvida sessionStorage al cerrar: restaura el espejo nativo
+    // antes de decidir la pantalla, para seguir en la misma sala.
+    void (async () => {
+      await restoreNativeSession();
+      if (!api.loggedIn) {
+        setScreen("onboarding");
+        return;
+      }
+      api
+        .me()
+        .then((me) => {
+          if (me.pairSpaceId) {
+            setSpaceId(me.pairSpaceId);
+            setScreen("studio");
+          } else {
+            setScreen("setup");
+          }
+        })
+        .catch(() => setScreen("onboarding"));
+    })();
   }, []);
 
   // Último espacio conocido (rellena la recuperación, nunca memorizar UUID).
@@ -210,7 +216,7 @@ export function App(): React.JSX.Element {
       onRemoteEvents: (events) => {
         setHistoryKey((k) => k + 1);
         if (events.some((e) => e.type === "drawing.created")) {
-          toast("Nuevo dibujo en el historial");
+          toast("Nuevo dibujo recibido");
         }
       },
       onSnapshot: () => setHistoryKey((k) => k + 1),
@@ -252,9 +258,10 @@ export function App(): React.JSX.Element {
         doc.canvas.height,
       );
       toast("En cola para publicar");
-      await syncEngine.pump();
+      const st = await syncEngine.pump();
       setHistoryKey((k) => k + 1);
-      setTab("historial");
+      // A envía y sigue en el lienzo: el historial es solo de recibidos.
+      if (st.pending === 0 && st.failed === 0) toast.success("Enviado");
     } catch {
       toast.error("No se pudo encolar");
     }
@@ -321,8 +328,8 @@ export function App(): React.JSX.Element {
                 <>
                   <Button
                     size="sm"
-                    aria-label="Salir al historial"
-                    title="Salir al historial"
+                    aria-label="Salir a recibidos"
+                    title="Salir a recibidos"
                     onClick={() => setConfirmKind("exit")}
                     className="pointer-events-auto rounded-full bg-red-500 text-white shadow-lg hover:bg-red-500/90"
                   >
@@ -620,12 +627,12 @@ export function App(): React.JSX.Element {
             </Dialog>
           )}
           <h2 className="font-pixel text-sm tracking-widest text-muted-foreground uppercase">
-            Historial:
+            Recibidos:
           </h2>
           <Suspense
             fallback={
               <p className="text-sm text-muted-foreground">
-                Cargando historial…
+                Cargando recibidos…
               </p>
             }
           >

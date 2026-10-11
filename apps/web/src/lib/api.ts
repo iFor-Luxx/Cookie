@@ -141,6 +141,13 @@ export class ApiClient {
       };
       this.session = { ...this.session, ...body };
       this.persist();
+      // El espejo nativo (widget en background) también rota: sin esto se
+      // queda con el refresh viejo y el worker falla tras la primera rotación.
+      try {
+        this.sessionListener?.(this.session);
+      } catch {
+        // El espejo nativo nunca debe romper la sesión web.
+      }
       return true;
     } catch {
       this.setSession(null);

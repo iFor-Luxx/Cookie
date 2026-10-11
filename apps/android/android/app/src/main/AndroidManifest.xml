@@ -77,6 +77,9 @@
     <!-- Instalación de updates propios vía PackageInstaller (Android 8+).
          No es peligroso; el usuario concede "apps desconocidas" una vez. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Aviso "Nuevo dibujo recibido" (celular B). En Android 13+ se pide
+         en runtime al abrir la app; sin concederlo solo se actualiza el widget. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- H9: cámara solo para escanear el QR de invitación (getUserMedia en
          WebView, con prompt del sistema). Sin esto el escáner usa el campo manual. -->
     <uses-permission android:name="android.permission.CAMERA" />

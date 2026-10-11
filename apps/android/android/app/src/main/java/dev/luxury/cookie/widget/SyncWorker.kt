@@ -110,6 +110,17 @@ class SyncWorker(appContext: Context, params: WorkerParameters) :
                 docJson,
             )
             CookieWidgetProvider.renderAll(applicationContext)
+            // Solo avisa si lo envió el otro (author != yo): A no se
+            // notifica sus propios envíos aunque también reciba el push.
+            val author = first.optString("authorUserId", "")
+            val mine = session.optString("userId", "")
+            if (author.isNotBlank() && mine.isNotBlank() && author != mine) {
+                try {
+                    CookieNotifier.showNewDrawing(applicationContext)
+                } catch (_: Exception) {
+                    // Notificación best-effort: el widget ya se actualizó.
+                }
+            }
             return Result.success()
         } catch (_: IOException) {
             return Result.retry()
