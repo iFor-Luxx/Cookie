@@ -16,7 +16,14 @@ import { QrScanner } from "./QrScanner";
  * sesión muestra su QR y ESTE dispositivo lo escanea para aprobar.
  * Escanear = aprobar (FR-10). Un solo uso, ~5 minutos.
  */
-export function LoginQrDialog(): React.JSX.Element {
+export function LoginQrDialog({
+  label,
+  className,
+}: {
+  /** Texto junto al icono (si se omite, solo icono). */
+  label?: string;
+  className?: string;
+}): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const [done, setDone] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -48,15 +55,17 @@ export function LoginQrDialog(): React.JSX.Element {
     <>
       <Button
         variant="ghost"
-        size="icon"
+        size={label ? "sm" : "icon"}
         aria-label="Dar entrada a otro dispositivo"
         onClick={() => {
           setDone(null);
           setError(null);
           setOpen(true);
         }}
+        className={className}
       >
         <QrCode className="size-4" aria-hidden />
+        {label}
       </Button>
       <Dialog open={open} onOpenChange={(o) => !o && setOpen(false)}>
         <DialogContent>

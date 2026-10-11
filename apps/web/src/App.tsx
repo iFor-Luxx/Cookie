@@ -22,6 +22,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Toaster } from "@/components/ui/sonner";
 import { api } from "@/lib/api";
 import { installDeepLinkListener } from "@/lib/deep-link";
@@ -70,7 +71,16 @@ export function App(): React.JSX.Element {
   const [canvasMode, setCanvasMode] = useState<CanvasMode>("draw");
   const [viewReset, setViewReset] = useState(0);
   const [zoom, setZoom] = useState(1);
-  const [confirmExit, setConfirmExit] = useState(false);
+  const [confirmKind, setConfirmKind] = useState<"exit" | "logout" | null>(
+    null,
+  );
+  const [logoutStep, setLogoutStep] = useState<1 | 2>(1);
+  const [logoutText, setLogoutText] = useState("");
+  const closeConfirm = (): void => {
+    setConfirmKind(null);
+    setLogoutStep(1);
+    setLogoutText("");
+  };
   const [saveState, setSaveState] = useState<SaveState>("local");
   const [, setVersion] = useState(0);
   const [pending, setPending] = useState(0);
@@ -211,26 +221,54 @@ export function App(): React.JSX.Element {
       {tab === "lienzo" ? (
         <div className="relative flex h-dvh flex-col overflow-hidden">
           <div className="pointer-events-none absolute inset-x-0 top-4 z-20 flex justify-center px-4">
-            <div className="liquid-glass pointer-events-auto flex w-full max-w-3xl items-center justify-between gap-2 rounded-full py-1.5 pr-1.5 pl-1.5 shadow-lg">
-              <div className="flex items-center gap-1.5">
+            <div className="pointer-events-none flex w-full max-w-3xl items-start justify-between gap-2">
+            {confirmKind === "exit" ? (
+              <div className="liquid-glass pointer-events-auto flex w-full items-center justify-between gap-2 rounded-full py-1.5 pr-1.5 pl-1.5 shadow-lg">
+                <span className="pl-2 text-sm font-medium">
+                  ¿Seguro de salir?
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="rounded-full"
+                    onClick={closeConfirm}
+                  >
+                    No
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      closeConfirm();
+                      setTab("historial");
+                    }}
+                    className="rounded-full bg-red-500 text-white shadow-sm hover:bg-red-500/90"
+                  >
+                    Sí, salir
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <>
                 <Button
                   size="sm"
                   aria-label="Salir al historial"
                   title="Salir al historial"
-                  onClick={() => setConfirmExit(true)}
-                  className="rounded-full bg-red-500 text-white shadow-sm hover:bg-red-500/90"
+                  onClick={() => setConfirmKind("exit")}
+                  className="pointer-events-auto rounded-full bg-red-500 text-white shadow-lg hover:bg-red-500/90"
                 >
                   <ArrowLeft className="size-4" aria-hidden />
                   Salir
                 </Button>
-              </div>
-              <Button
-                size="sm"
-                className="rounded-full"
-                onClick={publish}
-              >
-                Enviar
-              </Button>
+                <Button
+                  size="sm"
+                  className="pointer-events-auto rounded-full shadow-lg"
+                  onClick={publish}
+                >
+                  Enviar
+                </Button>
+              </>
+            )}
             </div>
           </div>
           <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden px-4 pt-24 pb-36">
@@ -248,7 +286,7 @@ export function App(): React.JSX.Element {
             />
           </div>
           <div className="fixed bottom-8 left-1/2 z-20 flex w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 justify-center">
-            <div className="liquid-glass flex max-w-full flex-col items-center gap-1 rounded-3xl px-4 py-2 shadow-lg">
+            <div className="liquid-glass flex max-w-full flex-col items-center gap-2.5 rounded-3xl px-4 py-2 shadow-lg">
               <div
                 className="flex items-center gap-1"
                 role="toolbar"
@@ -259,7 +297,11 @@ export function App(): React.JSX.Element {
                   size="sm"
                   aria-pressed={canvasMode === "pan"}
                   onClick={() => setCanvasMode("pan")}
-                  className="rounded-full"
+                  className={
+                    canvasMode === "pan"
+                      ? "rounded-full"
+                      : "rounded-full bg-white text-slate-800 shadow-sm hover:bg-white/90 hover:text-slate-800"
+                  }
                 >
                   <Hand className="size-4" aria-hidden />
                   Mover
@@ -269,7 +311,11 @@ export function App(): React.JSX.Element {
                   size="sm"
                   aria-pressed={canvasMode === "draw"}
                   onClick={() => setCanvasMode("draw")}
-                  className="rounded-full"
+                  className={
+                    canvasMode === "draw"
+                      ? "rounded-full"
+                      : "rounded-full bg-white text-slate-800 shadow-sm hover:bg-white/90 hover:text-slate-800"
+                  }
                 >
                   <Pen className="size-4" aria-hidden />
                   Pintar
@@ -352,55 +398,25 @@ export function App(): React.JSX.Element {
               </Button>
             )}
           </div>
-          <Dialog
-            open={confirmExit}
-            onOpenChange={(open) => setConfirmExit(open)}
-          >
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>¿Seguro de salir?</DialogTitle>
-              </DialogHeader>
-              <p className="text-sm text-muted-foreground">
-                Tu borrador se guarda solo y seguirá aquí al volver.
-              </p>
-              <div className="flex justify-end gap-2">
-                <Button
-                  variant="secondary"
-                  onClick={() => setConfirmExit(false)}
-                >
-                  Cancelar
-                </Button>
-                <Button
-                  onClick={() => {
-                    setConfirmExit(false);
-                    setTab("historial");
-                  }}
-                  className="rounded-full bg-red-500 text-white shadow-sm hover:bg-red-500/90"
-                >
-                  Salir
-                </Button>
-              </div>
-            </DialogContent>
-          </Dialog>
         </div>
       ) : (
         <div className="mx-auto flex max-w-3xl flex-col gap-5 px-4 py-8">
           <>
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-1">
-                <LoginQrDialog />
+                <LoginQrDialog
+                  label="Escanear QR"
+                  className="rounded-full bg-white text-slate-800 shadow-sm hover:bg-white/90 dark:bg-white dark:text-slate-800"
+                />
                 <Button
                   variant="ghost"
-                  size="icon"
-                  aria-label="Cerrar sesión"
-                  onClick={() => {
-                    realtimeRef.current?.stop();
-                    setSyncSpace(null);
-                    api.logout();
-                    setScreen("onboarding");
-                  }}
+                  size="sm"
+                  aria-label="Abandonar sala"
+                  onClick={() => setConfirmKind("logout")}
+                  className="rounded-full bg-red-500/15 text-red-600 hover:bg-red-500/25 hover:text-red-600 dark:text-red-400 dark:hover:text-red-400"
                 >
                   <LogOut className="size-4" aria-hidden />
+                  Abandonar sala
                 </Button>
               </div>
               <Button
@@ -410,6 +426,83 @@ export function App(): React.JSX.Element {
                 Dibujar
               </Button>
             </div>
+            {confirmKind === "logout" && (
+              <Dialog
+                open
+                onOpenChange={(open) => {
+                  if (!open) closeConfirm();
+                }}
+              >
+                <DialogContent>
+                  {logoutStep === 2 ? (
+                    <>
+                      <DialogHeader>
+                        <DialogTitle>Confirma que vas a salir</DialogTitle>
+                      </DialogHeader>
+                      <p className="text-sm text-muted-foreground">
+                        Escribe «salir» para abandonar la sala en este
+                        dispositivo.
+                      </p>
+                      <Input
+                        value={logoutText}
+                        onChange={(e) => setLogoutText(e.target.value)}
+                        placeholder="salir"
+                        autoComplete="off"
+                        autoCapitalize="off"
+                        spellCheck={false}
+                      />
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          variant="secondary"
+                          onClick={() => {
+                            setLogoutStep(1);
+                            setLogoutText("");
+                          }}
+                        >
+                          Volver
+                        </Button>
+                        <Button
+                          disabled={logoutText.trim().toLowerCase() !== "salir"}
+                          onClick={() => {
+                            realtimeRef.current?.stop();
+                            setSyncSpace(null);
+                            api.logout();
+                            closeConfirm();
+                            setScreen("onboarding");
+                          }}
+                          className="rounded-full bg-red-500 text-white shadow-sm hover:bg-red-500/90 disabled:opacity-50"
+                        >
+                          Abandonar sala
+                        </Button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <DialogHeader>
+                        <DialogTitle>¿Seguro de salir?</DialogTitle>
+                      </DialogHeader>
+                      <p className="text-sm text-muted-foreground">
+                        Se cerrará tu sesión en este dispositivo.
+                      </p>
+                      <div className="flex justify-end gap-2">
+                        <Button variant="secondary" onClick={closeConfirm}>
+                          Cancelar
+                        </Button>
+                        <Button
+                          onClick={() => {
+                            setLogoutStep(2);
+                            setLogoutText("");
+                          }}
+                          className="rounded-full bg-red-500 text-white shadow-sm hover:bg-red-500/90"
+                        >
+                          Continuar
+                        </Button>
+                      </div>
+                    </>
+                  )}
+                </DialogContent>
+              </Dialog>
+            )}
             <h2 className="font-pixel text-sm tracking-widest text-muted-foreground uppercase">
               Historial:
             </h2>
