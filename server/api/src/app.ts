@@ -11,6 +11,7 @@ import {
   registerInstallation,
   revokeInstallation,
   startRecovery,
+  startRecoveryByInvite,
   updateProfile,
 } from "@cookie/core";
 import {
@@ -22,6 +23,7 @@ import {
   createPairSpaceRequest,
   pollLoginAttemptRequest,
   pushTokenRequest,
+  recoveryChallengeByInviteRequest,
   recoveryChallengeRequest,
   recoveryCompleteRequest,
   updateMeRequest,
@@ -562,6 +564,44 @@ export function createApp(deps: AppDeps): (req: Request) => Promise<Response> {
       );
     }
 
+    // POST /v1/recovery-challenges — por código de invitación (sin ID).
+    if (req.method === "POST" && url.pathname === "/v1/recovery-challenges") {
+      const limited = checkRate(
+        deps,
+        requestId,
+        rateKeyIp(req, "recovery-challenge"),
+        RATE_LIMITS.recovery,
+      );
+      if (limited) return limited;
+      const parsed = recoveryChallengeByInviteRequest.safeParse(
+        (await readJson(req)) ?? {},
+      );
+      let challengeId: string | null = null;
+      if (parsed.success) {
+        const res = await startRecoveryByInvite(
+          deps.store,
+          deps.crypto,
+          deps.clock,
+          {
+            installationId: parsed.data.installationId,
+            inviteToken: parsed.data.inviteToken,
+          },
+        );
+        if (res.ok) challengeId = res.value.id;
+      }
+      // Indistinguible igual que la ruta por espacio: challenge ficticio.
+      const now = deps.clock.nowIso();
+      return Response.json(
+        {
+          challengeId: challengeId ?? deps.crypto.newId(),
+          expiresAt: new Date(
+            new Date(now).getTime() + 600_000,
+          ).toISOString(),
+        },
+        { status: 201 },
+      );
+    }
+
     // POST /v1/recovery/complete
     if (req.method === "POST" && url.pathname === "/v1/recovery/complete") {
       const limited = checkRate(
@@ -579,6 +619,9 @@ export function createApp(deps: AppDeps): (req: Request) => Promise<Response> {
         challengeId: parsed.data.challengeId,
         recoverySecret: parsed.data.recoverySecret,
         platform: parsed.data.platform,
+        ...(parsed.data.inviteToken !== undefined
+          ? { inviteToken: parsed.data.inviteToken }
+          : {}),
       });
       if (!res.ok) {
         return err(

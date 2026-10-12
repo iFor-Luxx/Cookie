@@ -309,6 +309,89 @@ describe("API pairing H2", () => {
     expect(done.json.userId).toBe(bReg.json.userId);
   }, 30_000);
 
+  it("recovery por código: sin ID, con contraseña, en sala llena", async () => {
+    const app = testApp().app;
+    const a = await call(app, "POST", "/v1/installations", {
+      body: { platform: "web", displayName: "A" },
+    });
+    const space = await call(app, "POST", "/v1/pair-spaces", {
+      token: a.json.accessToken as string,
+    });
+    const spaceId = space.json.pairSpaceId as string;
+    const recoverySecret = space.json.recoverySecret as string;
+    const inv1 = await call(
+      app,
+      "POST",
+      `/v1/pair-spaces/${spaceId}/invites`,
+      { token: a.json.accessToken as string, body: {} },
+    );
+    const bReg = await call(app, "POST", "/v1/installations", {
+      body: { platform: "android", displayName: "B" },
+    });
+    const joined = await call(app, "POST", "/v1/invites/consume", {
+      token: bReg.json.accessToken as string,
+      body: { inviteToken: inv1.json.inviteToken },
+    });
+    expect(joined.status).toBe(201);
+    // Código inventado → misma forma 201 (indistinguible).
+    const fake = await call(app, "POST", "/v1/recovery-challenges", {
+      body: { installationId: "x", inviteToken: "ZZZZZZZZZ" },
+    });
+    expect(fake.status).toBe(201);
+    expect(fake.json.challengeId).toBeTypeOf("string");
+    // A genera un código fresco para B (sala llena, accesos activos).
+    const inv2 = await call(
+      app,
+      "POST",
+      `/v1/pair-spaces/${spaceId}/invites`,
+      { token: a.json.accessToken as string, body: {} },
+    );
+    const ch = await call(app, "POST", "/v1/recovery-challenges", {
+      body: {
+        installationId: "nueva-b",
+        inviteToken: inv2.json.inviteToken,
+      },
+    });
+    expect(ch.status).toBe(201);
+    // Contraseña mal: 400 sin quemar el código (reintento vale).
+    const bad = await call(app, "POST", "/v1/recovery/complete", {
+      body: {
+        challengeId: ch.json.challengeId,
+        recoverySecret: "incorrecto",
+        platform: "android",
+        inviteToken: inv2.json.inviteToken,
+      },
+    });
+    expect(bad.status).toBe(400);
+    const done = await call(app, "POST", "/v1/recovery/complete", {
+      body: {
+        challengeId: ch.json.challengeId,
+        recoverySecret,
+        platform: "android",
+        inviteToken: inv2.json.inviteToken,
+      },
+    });
+    expect(done.status).toBe(201);
+    expect(done.json.userId).toBe(bReg.json.userId);
+    // Código quemado: challenge ficticio y complete 400.
+    const fake2 = await call(app, "POST", "/v1/recovery-challenges", {
+      body: {
+        installationId: "otra",
+        inviteToken: inv2.json.inviteToken,
+      },
+    });
+    expect(fake2.status).toBe(201);
+    const reuse = await call(app, "POST", "/v1/recovery/complete", {
+      body: {
+        challengeId: fake2.json.challengeId,
+        recoverySecret,
+        platform: "android",
+        inviteToken: inv2.json.inviteToken,
+      },
+    });
+    expect(reuse.status).toBe(400);
+  }, 30_000);
+
   it("health y versión de protocolo", async () => {
     const app = testApp().app;
     const res = await app(new Request("https://test/v1/health"));

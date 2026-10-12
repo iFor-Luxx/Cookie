@@ -273,11 +273,48 @@ export async function startRecovery(
   return { ok: true, value: challenge };
 }
 
+/**
+ * Challenge por código de invitación (sin saber el ID del espacio).
+ * El código debe estar fresco, sin usar y ser de una sala activa; si no,
+ * NOT_FOUND indistinguible (el llamante responde challenge ficticio).
+ */
+export async function startRecoveryByInvite(
+  store: PairingStore,
+  crypto: CryptoPort,
+  clock: ClockPort,
+  input: { installationId: string; inviteToken: string },
+): Promise<Result<RecoveryChallenge>> {
+  const invite = await findInviteByToken(store, crypto, input.inviteToken);
+  const now = clock.nowIso();
+  if (!invite || invite.consumedAt !== null || invite.expiresAt <= now) {
+    return { ok: false, code: "NOT_FOUND" };
+  }
+  const space = await store.findPairSpace(invite.pairSpaceId);
+  if (!space || space.status !== "active") {
+    return { ok: false, code: "NOT_FOUND" };
+  }
+  const challenge: RecoveryChallenge = {
+    id: crypto.newId(),
+    pairSpaceId: space.id,
+    installationId: input.installationId,
+    createdAt: now,
+    expiresAt: isoPlusSeconds(now, RECOVERY_CHALLENGE_TTL_SECONDS),
+    consumedAt: null,
+  };
+  await store.insertRecoveryChallenge(challenge);
+  return { ok: true, value: challenge };
+}
+
 export async function completeRecovery(
   store: PairingStore,
   crypto: CryptoPort,
   clock: ClockPort,
-  input: { challengeId: string; recoverySecret: string; platform: Platform },
+  input: {
+    challengeId: string;
+    recoverySecret: string;
+    platform: Platform;
+    inviteToken?: string;
+  },
 ): Promise<Result<RegisteredInstallation>> {
   const challenge = await store.findRecoveryChallenge(input.challengeId);
   const now = clock.nowIso();
@@ -299,7 +336,9 @@ export async function completeRecovery(
   }
   // La instalación nueva se ata al miembro con menos instalaciones activas
   // (el que perdió su dispositivo). Si todos tienen activas, no hay nada
-  // que recuperar.
+  // que recuperar... salvo que traiga código de invitación: un miembro con
+  // sesión lo generó para autorizar justo esta entrada, así que se consume
+  // el código y se entra igual (vale en sala llena).
   const members = await store.activeMemberships(challenge.pairSpaceId);
   if (members.length === 0) return { ok: false, code: "NOT_FOUND" };
   const counts = await store.countActiveInstallations(challenge.pairSpaceId);
@@ -307,13 +346,34 @@ export async function completeRecovery(
     .map((m) => ({ m, n: counts.get(m.userId) ?? 0 }))
     .sort((a, b) => a.n - b.n || (a.m.joinedAt < b.m.joinedAt ? -1 : 1));
   const target = ranked[0];
-  if (!target || target.n > 0) {
+  if (!target) return { ok: false, code: "NOT_FOUND" };
+  let userId = target.m.userId;
+  if (input.inviteToken !== undefined) {
+    const invite = await findInviteByToken(store, crypto, input.inviteToken);
+    if (
+      !invite ||
+      invite.consumedAt !== null ||
+      invite.expiresAt <= now ||
+      invite.pairSpaceId !== challenge.pairSpaceId
+    ) {
+      return { ok: false, code: "NOT_FOUND" };
+    }
+    // El código lo generó el miembro que ayuda; quien vuelve es el OTRO.
+    // (En empate el ranking iría al más antiguo: el creador.)
+    const other = ranked.find((r) => r.m.userId !== invite.createdBy);
+    userId = (other ?? target).m.userId;
+    await store.updateInvite({
+      ...invite,
+      consumedAt: now,
+      consumedBy: userId,
+    });
+  } else if (target.n > 0) {
     return { ok: false, code: "FORBIDDEN" };
   }
   const secret = crypto.newSecret();
   const installation: Installation = {
     id: challenge.installationId,
-    userId: target.m.userId,
+    userId,
     platform: input.platform,
     credentialHash: await crypto.hashSecret(secret),
     createdAt: now,
@@ -324,7 +384,7 @@ export async function completeRecovery(
   if (existing) return { ok: false, code: "VALIDATION_ERROR" };
   await store.insertInstallation(installation);
   await store.updateRecoveryChallenge({ ...challenge, consumedAt: now });
-  const user = await store.findUser(target.m.userId);
+  const user = await store.findUser(userId);
   if (!user) return { ok: false, code: "NOT_FOUND" };
   return {
     ok: true,

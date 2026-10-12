@@ -294,9 +294,21 @@ export class ApiClient {
     });
   }
 
+  /** Challenge por código de invitación (sin saber el ID del espacio). */
+  async recoveryChallengeByInvite(
+    installationId: string,
+    inviteToken: string,
+  ): Promise<{ challengeId: string }> {
+    return this.post("/v1/recovery-challenges", {
+      installationId,
+      inviteToken,
+    });
+  }
+
   async recoveryComplete(
     challengeId: string,
     recoverySecret: string,
+    inviteToken?: string,
   ): Promise<void> {
     const platform: Platform =
       typeof window !== "undefined" && "Capacitor" in window
@@ -306,6 +318,7 @@ export class ApiClient {
       challengeId,
       recoverySecret,
       platform,
+      ...(inviteToken !== undefined ? { inviteToken } : {}),
     })) as {
       userId: string;
       installationId: string;

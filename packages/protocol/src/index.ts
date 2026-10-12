@@ -175,11 +175,21 @@ export const recoveryChallengeResponse = z.object({
   expiresAt: z.string(),
 });
 
+// POST /v1/recovery-challenges — por código de invitación (sin ID de espacio).
+// El código lo genera un miembro desde la sala; un solo uso, TTL corto.
+export const recoveryChallengeByInviteRequest = z.object({
+  installationId: z.string().min(1),
+  inviteToken: z.string().trim().min(1).max(128),
+});
+
 // POST /v1/recovery/complete
 export const recoveryCompleteRequest = z.object({
   challengeId: z.string().min(1),
   recoverySecret: z.string().min(1),
   platform: platformSchema,
+  // Con código + contraseña se entra aunque todos tengan accesos activos:
+  // el código prueba que un miembro autorizó esta entrada y se consume aquí.
+  inviteToken: z.string().trim().min(1).max(128).optional(),
 });
 export const recoveryCompleteResponse = z.object({
   userId: z.string(),

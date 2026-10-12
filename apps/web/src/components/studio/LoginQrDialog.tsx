@@ -72,8 +72,8 @@ export function LoginQrDialog({
           <DialogHeader>
             <DialogTitle>Dar entrada a otro dispositivo</DialogTitle>
             <p className="text-sm text-muted-foreground">
-              En el PC pulsa «Entrar con mi celular» y escanea aquí el QR que
-              muestra. Entrará a tu misma sala, sin crear otra.
+              Escanea aquí el QR de entrada que muestra el otro
+              dispositivo. Entrará a tu misma sala, sin crear otra.
             </p>
           </DialogHeader>
           <div className="flex flex-col gap-3">

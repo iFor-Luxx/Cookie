@@ -20,6 +20,7 @@ import {
   registerInstallation,
   revokeInstallation,
   startRecovery,
+  startRecoveryByInvite,
   updateProfile,
 } from "./pairing";
 import type { ClockPort, CryptoPort, PairingStore } from "./ports";
@@ -444,6 +445,103 @@ describe("pairing H2", () => {
     });
     expect(done.ok).toBe(true);
     if (done.ok) expect(done.value.user.id).toBe(bReg.value.user.id);
+  });
+
+  it("recovery con código+contraseña entra en sala llena", async () => {
+    const store = memoryStore();
+    const crypto = stubCrypto();
+    const clock = stubClock();
+    const a = await registerInstallation(store, crypto, clock, {
+      platform: "web",
+      displayName: "A",
+    });
+    if (!a.ok) return;
+    const space = await createPairSpace(store, crypto, clock, {
+      userId: a.value.user.id,
+      recoverySecret: "contraseña-larga",
+    });
+    if (!space.ok) return;
+    const spaceId = space.value.space.id;
+    const inv1 = await createInvite(store, crypto, clock, {
+      spaceId,
+      actorUserId: a.value.user.id,
+      ttlSeconds: 3600,
+    });
+    if (!inv1.ok) return;
+    const bReg = await registerInstallation(store, crypto, clock, {
+      platform: "android",
+      displayName: "B",
+    });
+    if (!bReg.ok) return;
+    const joined = await consumeInvite(store, crypto, clock, {
+      token: inv1.value.inviteToken,
+      userId: bReg.value.user.id,
+    });
+    if (!joined.ok) return;
+    // Sala llena con accesos activos: solo-contraseña da FORBIDDEN.
+    const ch0 = await startRecovery(store, crypto, clock, {
+      spaceId,
+      installationId: "nueva-b",
+    });
+    if (!ch0.ok) return;
+    const denied = await completeRecovery(store, crypto, clock, {
+      challengeId: ch0.value.id,
+      recoverySecret: "contraseña-larga",
+      platform: "android",
+    });
+    expect(denied).toEqual({ ok: false, code: "FORBIDDEN" });
+    // A genera un código fresco para B (quema el anterior sin usar).
+    const inv2 = await createInvite(store, crypto, clock, {
+      spaceId,
+      actorUserId: a.value.user.id,
+      ttlSeconds: 3600,
+    });
+    if (!inv2.ok) return;
+    const ch = await startRecoveryByInvite(store, crypto, clock, {
+      installationId: "nueva-b",
+      inviteToken: inv2.value.inviteToken,
+    });
+    expect(ch.ok).toBe(true);
+    if (!ch.ok) return;
+    // Contraseña mal: no entra ni quema el código.
+    const wrong = await completeRecovery(store, crypto, clock, {
+      challengeId: ch.value.id,
+      recoverySecret: "otra-cosa",
+      platform: "android",
+    });
+    expect(wrong).toEqual({ ok: false, code: "NOT_FOUND" });
+    const done = await completeRecovery(store, crypto, clock, {
+      challengeId: ch.value.id,
+      recoverySecret: "contraseña-larga",
+      platform: "android",
+      inviteToken: inv2.value.inviteToken,
+    });
+    expect(done.ok).toBe(true);
+    if (done.ok) {
+      // Misma identidad de B, sin duplicar miembros.
+      expect(done.value.user.id).toBe(bReg.value.user.id);
+      const members = await store.activeMemberships(spaceId);
+      expect(members).toHaveLength(2);
+    }
+    // Código quemado: ni challenge nuevo ni segundo complete.
+    const again = await startRecoveryByInvite(store, crypto, clock, {
+      installationId: "otra-mas",
+      inviteToken: inv2.value.inviteToken,
+    });
+    expect(again).toEqual({ ok: false, code: "NOT_FOUND" });
+    // Código vencido: tampoco abre challenge.
+    const inv3 = await createInvite(store, crypto, clock, {
+      spaceId,
+      actorUserId: a.value.user.id,
+      ttlSeconds: 60,
+    });
+    if (!inv3.ok) return;
+    clock.tick(61_000);
+    const expired = await startRecoveryByInvite(store, crypto, clock, {
+      installationId: "otra-mas",
+      inviteToken: inv3.value.inviteToken,
+    });
+    expect(expired).toEqual({ ok: false, code: "NOT_FOUND" });
   });
 
   it("login por QR: el PC muestra, el celular aprueba, misma sala", async () => {

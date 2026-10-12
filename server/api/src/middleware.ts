@@ -133,6 +133,7 @@ export function routeTemplate(method: string, pathname: string): string {
     t(/^\/v1\/login-attempts\/approve$/, "/v1/login-attempts/approve") ??
     t(/^\/v1\/login-attempts\/poll$/, "/v1/login-attempts/poll") ??
     t(/^\/v1\/recovery\/complete$/, "/v1/recovery/complete") ??
+    t(/^\/v1\/recovery-challenges$/, "/v1/recovery-challenges") ??
     t(/^\/v1\/uploads\/intents$/, "/v1/uploads/intents") ??
     t(/^\/v1\/uploads\/[^/]+$/, "/v1/uploads/:id") ??
     t(/^\/v1\/drawings\/[^/]+$/, "/v1/drawings/:id") ??

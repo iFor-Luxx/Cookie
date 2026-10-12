@@ -13,8 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError, api } from "@/lib/api";
-import { loginQrPayload } from "@/lib/invite-qr";
-import { loadLastSpaceId } from "@/lib/last-space";
+import { formatInviteTokenInput, loginQrPayload } from "@/lib/invite-qr";
 import { usePrefersDark } from "@/lib/use-prefers-dark";
 import { cn } from "@/lib/utils";
 import { transitionTo } from "@/lib/view-transition";
@@ -68,7 +67,7 @@ export function Onboarding({
     if (!started && phase >= 2 && !reducedMotion) warmWipeGpu();
   }, [started, phase, reducedMotion]);
   const [recover, setRecover] = useState(false);
-  const [spaceId, setSpaceId] = useState(() => loadLastSpaceId() ?? "");
+  const [inviteCode, setInviteCode] = useState("");
   const [secret, setSecret] = useState("");
   const [showSecret, setShowSecret] = useState(false);
   // Entrada estilo WhatsApp Web: este PC muestra su QR y el celular con
@@ -163,12 +162,18 @@ export function Onboarding({
     setBusy(true);
     setError(null);
     try {
+      const code = formatInviteTokenInput(inviteCode);
+      if (!code) throw new Error("código vacío");
       const installationId = crypto.randomUUID();
-      const ch = await api.recoveryChallenge(spaceId.trim(), installationId);
-      await api.recoveryComplete(ch.challengeId, secret.trim());
-      onDone(null);
+      const ch = await api.recoveryChallengeByInvite(installationId, code);
+      await api.recoveryComplete(ch.challengeId, secret.trim(), code);
+      // La recuperación deja sesión: entrar directo a la misma sala.
+      const me = await api.me();
+      onDone(me.pairSpaceId);
     } catch {
-      setError("No se pudo recuperar. Revisa el espacio y el secreto.");
+      setError(
+        "No se pudo recuperar. Pide un código nuevo al otro teléfono y revisa la contraseña exacta.",
+      );
     } finally {
       setBusy(false);
     }
@@ -359,15 +364,17 @@ export function Onboarding({
                   onClick={() => setRecover(true)}
                   className="text-sm text-muted-foreground underline-offset-4 hover:underline"
                 >
-                  ¿Ya tienes una sala? Ingresa aquí
+                  ¿Ya tienes una sala? Vuelve a entrar aquí
                 </button>
               </>
             ) : (
               <>
                 <div className="flex flex-col items-center gap-2">
                   <p className="text-sm text-muted-foreground">
-                    Escanea este QR con tu celular para entrar a tu misma sala,
-                    sin crear otra.
+                    1. Este teléfono muestra su QR de entrada. 2. En el otro
+                    teléfono, dentro de la sala, pulsa «Escanear QR» y
+                    escanea este código. 3. Entras con tu misma identidad,
+                    sin crear otra sala.
                   </p>
                   {attempt ? (
                     <div
@@ -411,16 +418,30 @@ export function Onboarding({
                   </p>
                 </div>
                 <Separator />
+                <p className="text-xs text-muted-foreground">
+                  Sin el otro teléfono a mano no hay código: pídelo por
+                  mensaje o escanea su QR. Junto a tu contraseña vuelves a
+                  la misma sala, sin crear otra.
+                </p>
                 <div className="flex flex-col gap-2">
-                  <Label htmlFor="space">ID del espacio</Label>
+                  <Label htmlFor="code">Código de invitación</Label>
                   <Input
-                    id="space"
-                    value={spaceId}
-                    onChange={(e) => setSpaceId(e.target.value)}
+                    id="code"
+                    value={inviteCode}
+                    onChange={(e) =>
+                      setInviteCode(formatInviteTokenInput(e.target.value))
+                    }
+                    className="font-mono tracking-[0.2em] uppercase"
+                    placeholder="9 caracteres"
+                    maxLength={9}
+                    autoCapitalize="characters"
+                    autoComplete="off"
+                    spellCheck={false}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Si este dispositivo ya estuvo en el espacio, se rellena
-                    solo.
+                    El otro teléfono lo genera en su sala con «Invitar».
+                    Un solo uso y caduca en 1 hora: si ya se usó, pide
+                    uno nuevo.
                   </p>
                 </div>
                 <div className="flex flex-col gap-2">
@@ -462,7 +483,7 @@ export function Onboarding({
                 {error && <p className="text-sm text-destructive">{error}</p>}
                 <Button
                   onClick={doRecover}
-                  disabled={busy || !spaceId || !secret}
+                  disabled={busy || !inviteCode.trim() || !secret}
                 >
                   Recuperar
                 </Button>

@@ -99,7 +99,7 @@ class UpdatePlugin : Plugin() {
     fun downloadUpdate(call: PluginCall) {
         val url = call.getString("url") ?: return call.reject("Falta url")
         val sha256 = call.getString("sha256") ?: return call.reject("Falta sha256")
-        val versionCode = call.getInt("versionCode", -1)
+        val versionCode = call.getInt("versionCode", -1) ?: -1
         if (!url.startsWith("https://") ||
             !sha256.matches(Regex("[0-9a-fA-F]{64}")) ||
             versionCode <= 0
@@ -181,7 +181,7 @@ class UpdatePlugin : Plugin() {
 
     @PluginMethod
     fun installUpdate(call: PluginCall) {
-        val versionCode = call.getInt("versionCode", -1)
+        val versionCode = call.getInt("versionCode", -1) ?: -1
         val apk = if (versionCode > 0) apkFile(versionCode) else null
         if (apk == null || !apk.exists()) {
             call.reject("Primero descarga la actualización")

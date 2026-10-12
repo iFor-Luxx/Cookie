@@ -129,13 +129,29 @@ export function CanvasBoard({
     void (async () => {
       try {
         const raw = await draftStore.loadDraft(draftId);
-        if (cancelled || !raw) {
+        if (cancelled) return;
+        const current = engine.exportDocument();
+        if (!raw) {
+          // Sin borrador: conserva lo que haya en memoria (volver de
+          // "Salir" no debe vaciar el lienzo) y asegúralo en IDB.
+          if (current.strokes.length > 0) {
+            void draftStore
+              .saveDraft(draftId, current)
+              .catch(() => undefined);
+          }
           drawBase();
           return;
         }
-        engine.loadDocument(parseDocument(raw));
+        const doc = parseDocument(raw);
+        // Solo pisa el motor si está vacío o el borrador trae trazos:
+        // un borrador viejo/vacío jamás borra trazos en memoria al volver.
+        if (current.strokes.length === 0 || doc.strokes.length > 0) {
+          engine.loadDocument(doc);
+        } else {
+          void draftStore.saveDraft(draftId, current).catch(() => undefined);
+        }
       } catch {
-        // Borrador corrupto: empezar en blanco.
+        // Borrador corrupto: conserva el motor tal cual y dibújalo.
       }
       if (!cancelled) drawBase();
     })();
@@ -396,7 +412,16 @@ export function CanvasBoard({
     return () => {
       cancelled = true;
       unsubscribe();
-      if (saveTimer.current !== null) window.clearTimeout(saveTimer.current);
+      if (saveTimer.current !== null) {
+        window.clearTimeout(saveTimer.current);
+        saveTimer.current = null;
+        // Salir con autoguardado pendiente no tira trazos: escribe ya.
+        // (El "Salir" rápido era la forma de perder el final del dibujo.)
+        void draftStore
+          .saveDraft(draftId, engine.exportDocument())
+          .then(() => callbacksRef.current.onSaveState("saved"))
+          .catch(() => undefined);
+      }
       wrap.removeEventListener("pointerdown", onPointerDown);
       wrap.removeEventListener("pointermove", onPointerMove);
       wrap.removeEventListener("pointerup", endStroke);

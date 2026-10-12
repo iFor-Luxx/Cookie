@@ -24,6 +24,7 @@ import {
   type SaveState,
 } from "@/components/canvas/CanvasBoard";
 import { Toolbar } from "@/components/canvas/Toolbar";
+import { InviteDialog } from "@/components/studio/InviteDialog";
 import { LoginQrDialog } from "@/components/studio/LoginQrDialog";
 import { Onboarding } from "@/components/studio/Onboarding";
 import { SpaceSetup } from "@/components/studio/SpaceSetup";
@@ -481,6 +482,11 @@ export function App(): React.JSX.Element {
             <div className="flex items-center gap-1">
               <LoginQrDialog
                 label="Escanear QR"
+                className="rounded-full bg-white text-slate-800 shadow-sm hover:bg-white/90 dark:bg-white dark:text-slate-800"
+              />
+              <InviteDialog
+                spaceId={id}
+                label="Invitar"
                 className="rounded-full bg-white text-slate-800 shadow-sm hover:bg-white/90 dark:bg-white dark:text-slate-800"
               />
               <Button
