@@ -37,5 +37,12 @@ d1/*.sqlite*
 .env.*
 !.env.example
 google-services.json
+# Cuenta de servicio Firebase (la pide `wrangler secret put FCM_SERVICE_ACCOUNT`):
+# si se descarga al repo, jamás debe commitearse.
+*-firebase-adminsdk-*.json
 *.p8
 *.pem
+# Logs del CLI de Firebase (aparecen solos ante cualquier error).
+firebase-debug.log
+firestore-debug.log
+database-debug.log
