@@ -12,9 +12,9 @@ import { inviteQrPayload } from "@/lib/invite-qr";
 import { InviteQr } from "./InviteQr";
 
 /**
- * El teléfono que está en la sala genera un código fresco para el otro
- * (recuperar su acceso con código + contraseña). Un solo uso: cada vez
- * que se genera, el anterior caduca.
+ * El teléfono que está en la sala muestra el código actual al otro
+ * (recuperar su acceso con código + contraseña). No caduca: cada vez
+ * que se genera uno nuevo, el anterior deja de valer.
  */
 export function InviteDialog({
   spaceId,
@@ -76,7 +76,7 @@ export function InviteDialog({
             <p className="text-sm text-muted-foreground">
               Dicta o comparte este código: en su pantalla de volver a
               entrar lo escribe junto a la contraseña y vuelve a la misma
-              sala. Un solo uso y caduca en 1 hora.
+              sala. No caduca.
             </p>
           </DialogHeader>
           <div className="flex flex-col items-center gap-3">

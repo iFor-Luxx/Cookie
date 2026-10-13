@@ -116,15 +116,22 @@ export async function createPairSpace(
 
 export interface CreatedInvite {
   readonly invite: Invite;
-  /** Token en claro: un solo uso, TTL corto, canal privado. */
+  /** Token en claro: reutilizable, no caduca (solo se invalida al generar otro). */
   readonly inviteToken: string;
 }
+
+/**
+ * Invitaciones indefinidas: no caducan y no se queman al usarse. Cada código
+ * generado vale para siempre (unirse o recuperar con contraseña). Generar
+ * otro NO invalida los anteriores.
+ */
+export const INVITE_EXPIRES_AT_INDEFINITE = "9999-12-31T23:59:59.999Z";
 
 export async function createInvite(
   store: PairingStore,
   crypto: CryptoPort,
   clock: ClockPort,
-  input: { spaceId: string; actorUserId: string; ttlSeconds: number },
+  input: { spaceId: string; actorUserId: string; ttlSeconds?: number },
 ): Promise<Result<CreatedInvite>> {
   const space = await store.findPairSpace(input.spaceId);
   if (!space || space.status !== "active")
@@ -136,12 +143,8 @@ export async function createInvite(
   if (!membership || membership.leftAt !== null) {
     return { ok: false, code: "FORBIDDEN" };
   }
-  if (input.ttlSeconds < 60 || input.ttlSeconds > 24 * 3600) {
-    return { ok: false, code: "VALIDATION_ERROR" };
-  }
   const now = clock.nowIso();
-  // SDD: máximo un invite activo recomendado. Expirar anteriores.
-  await store.expireActiveInvites(input.spaceId, now);
+  // ttlSeconds se ignora por compat: las invitaciones no caducan.
   const token = crypto.newInviteToken();
   const invite: Invite = {
     id: crypto.newId(),
@@ -149,7 +152,7 @@ export async function createInvite(
     tokenHash: await crypto.lookupHash(token),
     createdBy: input.actorUserId,
     createdAt: now,
-    expiresAt: isoPlusSeconds(now, input.ttlSeconds),
+    expiresAt: INVITE_EXPIRES_AT_INDEFINITE,
     consumedAt: null,
     consumedBy: null,
   };
@@ -182,10 +185,9 @@ export async function consumeInvite(
 ): Promise<Result<{ pairSpaceId: string }>> {
   const invite = await findInviteByToken(store, crypto, input.token);
   if (!invite) return { ok: false, code: "NOT_FOUND" };
-  if (invite.consumedAt !== null)
-    return { ok: false, code: "INVITE_ALREADY_USED" };
+  // Indefinidas: se ignoran consumedAt/expiresAt (valen códigos viejos de
+  // un solo uso o con TTL corto generados antes de este cambio).
   const now = clock.nowIso();
-  if (invite.expiresAt <= now) return { ok: false, code: "INVITE_EXPIRED" };
   const space = await store.findPairSpace(invite.pairSpaceId);
   if (!space || space.status !== "active")
     return { ok: false, code: "NOT_FOUND" };
@@ -211,7 +213,7 @@ export async function consumeInvite(
     leftAt: null,
   };
   await store.insertMembership(membership);
-  await store.updateInvite({ ...invite, consumedAt: now, consumedBy: user.id });
+  // El código NO se quema: reutilizable hasta que se genere otro.
   return { ok: true, value: { pairSpaceId: space.id } };
 }
 
@@ -275,7 +277,7 @@ export async function startRecovery(
 
 /**
  * Challenge por código de invitación (sin saber el ID del espacio).
- * El código debe estar fresco, sin usar y ser de una sala activa; si no,
+ * El código debe ser el actual de una sala activa; si no,
  * NOT_FOUND indistinguible (el llamante responde challenge ficticio).
  */
 export async function startRecoveryByInvite(
@@ -286,7 +288,7 @@ export async function startRecoveryByInvite(
 ): Promise<Result<RecoveryChallenge>> {
   const invite = await findInviteByToken(store, crypto, input.inviteToken);
   const now = clock.nowIso();
-  if (!invite || invite.consumedAt !== null || invite.expiresAt <= now) {
+  if (!invite) {
     return { ok: false, code: "NOT_FOUND" };
   }
   const space = await store.findPairSpace(invite.pairSpaceId);
@@ -337,8 +339,8 @@ export async function completeRecovery(
   // La instalación nueva se ata al miembro con menos instalaciones activas
   // (el que perdió su dispositivo). Si todos tienen activas, no hay nada
   // que recuperar... salvo que traiga código de invitación: un miembro con
-  // sesión lo generó para autorizar justo esta entrada, así que se consume
-  // el código y se entra igual (vale en sala llena).
+  // sesión lo generó para autorizar esta entrada y se entra igual
+  // (vale en sala llena). El código NO se quema: vale hasta generar otro.
   const members = await store.activeMemberships(challenge.pairSpaceId);
   if (members.length === 0) return { ok: false, code: "NOT_FOUND" };
   const counts = await store.countActiveInstallations(challenge.pairSpaceId);
@@ -350,23 +352,13 @@ export async function completeRecovery(
   let userId = target.m.userId;
   if (input.inviteToken !== undefined) {
     const invite = await findInviteByToken(store, crypto, input.inviteToken);
-    if (
-      !invite ||
-      invite.consumedAt !== null ||
-      invite.expiresAt <= now ||
-      invite.pairSpaceId !== challenge.pairSpaceId
-    ) {
+    if (!invite || invite.pairSpaceId !== challenge.pairSpaceId) {
       return { ok: false, code: "NOT_FOUND" };
     }
     // El código lo generó el miembro que ayuda; quien vuelve es el OTRO.
     // (En empate el ranking iría al más antiguo: el creador.)
     const other = ranked.find((r) => r.m.userId !== invite.createdBy);
     userId = (other ?? target).m.userId;
-    await store.updateInvite({
-      ...invite,
-      consumedAt: now,
-      consumedBy: userId,
-    });
   } else if (target.n > 0) {
     return { ok: false, code: "FORBIDDEN" };
   }

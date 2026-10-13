@@ -12,6 +12,7 @@ import {
   TransportError,
 } from "@cookie/sync";
 import { ApiError, api } from "./api";
+import { syncNativeWidget } from "./widget-bridge";
 
 const PREVIEW_BUDGET_BYTES = 16 * 1024;
 
@@ -230,8 +231,18 @@ export class RealtimeClient {
     try {
       const res = await reconcileSpace(this.spaceId);
       if (res.snapshot) this.handlers.onSnapshot();
-      else if (res.applied.length > 0)
+      else if (res.applied.length > 0) {
         this.handlers.onRemoteEvents(res.applied);
+        // Widget al instante con la app abierta (sin esperar FCM).
+        if (
+          res.applied.some(
+            (e) => e.type === "drawing.created" || e.type === "drawing.deleted",
+          )
+        ) {
+          const cursor = (await cursorBackend(this.spaceId).load()).lastSeq;
+          void syncNativeWidget(this.spaceId, cursor);
+        }
+      }
     } catch {
       // Sin red: el próximo ciclo lo intentará.
     }

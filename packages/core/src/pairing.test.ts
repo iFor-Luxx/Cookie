@@ -231,7 +231,8 @@ describe("pairing H2", () => {
     if (!b.ok) return;
     expect(b.value.pairSpaceId).toBe(space.value.space.id);
 
-    // Reusar el mismo token falla (otro usuario ya registrado).
+    // Reutilizable: el mismo código sigue valiendo, pero la sala ya está
+    // llena (A+B), así que un tercero no entra.
     const cReg = await registerInstallation(store, crypto, clock, {
       platform: "web",
       displayName: "C",
@@ -241,16 +242,20 @@ describe("pairing H2", () => {
       token: inv.value.inviteToken,
       userId: cReg.value.user.id,
     });
-    expect(reuse).toEqual({ ok: false, code: "INVITE_ALREADY_USED" });
+    expect(reuse).toEqual({ ok: false, code: "PAIRSPACE_FULL" });
 
-    // Tercer miembro excede capacidad.
+    // Generar otro rota el anterior: el viejo deja de valer.
     const inv2 = await createInvite(store, crypto, clock, {
       spaceId: space.value.space.id,
       actorUserId: a.value.user.id,
-      ttlSeconds: 3600,
     });
     expect(inv2.ok).toBe(true);
     if (!inv2.ok) return;
+    const rotated = await consumeInvite(store, crypto, clock, {
+      token: inv.value.inviteToken,
+      userId: cReg.value.user.id,
+    });
+    expect(rotated).toEqual({ ok: false, code: "INVITE_EXPIRED" });
     const c = await consumeInvite(store, crypto, clock, {
       token: inv2.value.inviteToken,
       userId: cReg.value.user.id,
@@ -320,7 +325,7 @@ describe("pairing H2", () => {
     expect(second).toEqual({ ok: false, code: "VALIDATION_ERROR" });
   });
 
-  it("invite expirada se rechaza", async () => {
+  it("invite no caduca con el tiempo; rota al generar otra", async () => {
     const store = memoryStore();
     const crypto = stubCrypto();
     const clock = stubClock();
@@ -336,10 +341,10 @@ describe("pairing H2", () => {
     const inv = await createInvite(store, crypto, clock, {
       spaceId: space.value.space.id,
       actorUserId: a.value.user.id,
-      ttlSeconds: 60,
     });
     if (!inv.ok) return;
-    clock.tick(61_000);
+    // El tiempo no la invalida: sigue valiendo mucho después.
+    clock.tick(30 * 24 * 3600_000);
     const bReg = await registerInstallation(store, crypto, clock, {
       platform: "web",
       displayName: "B",
@@ -349,7 +354,7 @@ describe("pairing H2", () => {
       token: inv.value.inviteToken,
       userId: bReg.value.user.id,
     });
-    expect(res).toEqual({ ok: false, code: "INVITE_EXPIRED" });
+    expect(res.ok).toBe(true);
   });
 
   it("revocar exige confirmación y pertenencia", async () => {
@@ -490,11 +495,10 @@ describe("pairing H2", () => {
       platform: "android",
     });
     expect(denied).toEqual({ ok: false, code: "FORBIDDEN" });
-    // A genera un código fresco para B (quema el anterior sin usar).
+    // A genera un código para B (rota el anterior sin usar).
     const inv2 = await createInvite(store, crypto, clock, {
       spaceId,
       actorUserId: a.value.user.id,
-      ttlSeconds: 3600,
     });
     if (!inv2.ok) return;
     const ch = await startRecoveryByInvite(store, crypto, clock, {
@@ -503,7 +507,7 @@ describe("pairing H2", () => {
     });
     expect(ch.ok).toBe(true);
     if (!ch.ok) return;
-    // Contraseña mal: no entra ni quema el código.
+    // Contraseña mal: no entra (el código sigue valiendo).
     const wrong = await completeRecovery(store, crypto, clock, {
       challengeId: ch.value.id,
       recoverySecret: "otra-cosa",
@@ -523,25 +527,19 @@ describe("pairing H2", () => {
       const members = await store.activeMemberships(spaceId);
       expect(members).toHaveLength(2);
     }
-    // Código quemado: ni challenge nuevo ni segundo complete.
+    // Código reutilizable: sigue valiendo para otro challenge.
     const again = await startRecoveryByInvite(store, crypto, clock, {
       installationId: "otra-mas",
       inviteToken: inv2.value.inviteToken,
     });
-    expect(again).toEqual({ ok: false, code: "NOT_FOUND" });
-    // Código vencido: tampoco abre challenge.
-    const inv3 = await createInvite(store, crypto, clock, {
-      spaceId,
-      actorUserId: a.value.user.id,
-      ttlSeconds: 60,
+    expect(again.ok).toBe(true);
+    // El tiempo no lo invalida.
+    clock.tick(30 * 24 * 3600_000);
+    const stillValid = await startRecoveryByInvite(store, crypto, clock, {
+      installationId: "otra-mas-2",
+      inviteToken: inv2.value.inviteToken,
     });
-    if (!inv3.ok) return;
-    clock.tick(61_000);
-    const expired = await startRecoveryByInvite(store, crypto, clock, {
-      installationId: "otra-mas",
-      inviteToken: inv3.value.inviteToken,
-    });
-    expect(expired).toEqual({ ok: false, code: "NOT_FOUND" });
+    expect(stillValid.ok).toBe(true);
   });
 
   it("login por QR: el PC muestra, el celular aprueba, misma sala", async () => {

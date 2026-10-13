@@ -1,15 +1,12 @@
 // @cookie/server-realtime — RoomHub: coordinación de sockets por PairSpace.
 // Puro y testeable: el Durable Object es un wrapper fino (ver pair-room.ts).
 // Reglas SDD §6.2: solo eventos confirmados, payloads pequeños, sin documento.
-
-export interface RoomSocket {
-  readonly id: string;
-  send(message: string): void;
-  close(code: number, reason: string): void;
-}
-
-/** Cierre recuperable: el cliente reconecta y pide replay por cursor. */
-export const RECOVERABLE_CLOSE = 4100 as const;
+//
+// Hibernación: el DO se desalja de memoria en inactividad y el estado en
+// memoria SE PIERDE (los sockets siguen abiertos). Por eso el hub guarda
+// SOLO metadatos (socketId → instalación/cursor): los handles vivos se
+// resuelven por evento vía `state.getWebSockets()` + attachment (que sí
+// sobrevive). Guardar sockets aquí rompía el fanout tras hibernar.
 
 export interface BroadcastEvent {
   readonly type: string;
@@ -19,7 +16,6 @@ export interface BroadcastEvent {
 }
 
 interface Member {
-  socket: RoomSocket;
   installationId: string;
   lastSeenSeq: number;
 }
@@ -29,7 +25,7 @@ export class RoomHub {
 
   join(
     spaceId: string,
-    socket: RoomSocket,
+    socketId: string,
     installationId: string,
     lastSeenSeq: number,
   ): number {
@@ -38,7 +34,7 @@ export class RoomHub {
       room = new Map();
       this.rooms.set(spaceId, room);
     }
-    room.set(socket.id, { socket, installationId, lastSeenSeq });
+    room.set(socketId, { installationId, lastSeenSeq });
     return room.size;
   }
 
@@ -50,10 +46,14 @@ export class RoomHub {
     return room.size;
   }
 
-  /** Fanout a conexiones del espacio. Devuelve entregados/fallidos. */
+  /**
+   * Fanout a conexiones del espacio. `send` resuelve el handle vivo por
+   * evento (ver Hibernación arriba); devuelve false si ya no existe.
+   */
   broadcast(
     spaceId: string,
     event: BroadcastEvent,
+    send: (socketId: string, message: string) => boolean,
   ): { delivered: number; dropped: number } {
     const room = this.rooms.get(spaceId);
     if (!room) return { delivered: 0, dropped: 0 };
@@ -61,41 +61,36 @@ export class RoomHub {
     if (message.length > 64 * 1024) return { delivered: 0, dropped: room.size };
     let delivered = 0;
     let dropped = 0;
-    for (const [id, member] of room) {
+    for (const id of room.keys()) {
       try {
-        member.socket.send(message);
-        delivered++;
-      } catch {
-        // Backpressure/socket muerto: cerrar recuperable, replay por API.
-        try {
-          member.socket.close(RECOVERABLE_CLOSE, "slow-consumer");
-        } catch {
-          // Cierre también falló: nada más que hacer.
+        if (send(id, message)) delivered++;
+        else {
+          room.delete(id);
+          dropped++;
         }
+      } catch {
+        // Handle muerto: fuera del room; el runtime limpia al cerrar.
         room.delete(id);
         dropped++;
       }
     }
+    if (room.size === 0) this.rooms.delete(spaceId);
     return { delivered, dropped };
   }
 
-  /** Cierra sockets cuya instalación fue revocada. */
-  evictInstallation(spaceId: string, installationId: string): number {
+  /** Expulsa sockets de una instalación; devuelve sus socketIds (el DO los cierra). */
+  evictInstallation(spaceId: string, installationId: string): string[] {
     const room = this.rooms.get(spaceId);
-    if (!room) return 0;
-    let evicted = 0;
+    if (!room) return [];
+    const out: string[] = [];
     for (const [id, member] of room) {
       if (member.installationId === installationId) {
-        try {
-          member.socket.close(4401, "revoked");
-        } catch {
-          // Ya cerrado.
-        }
         room.delete(id);
-        evicted++;
+        out.push(id);
       }
     }
-    return evicted;
+    if (room.size === 0) this.rooms.delete(spaceId);
+    return out;
   }
 
   memberCount(spaceId: string): number {

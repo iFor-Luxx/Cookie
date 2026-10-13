@@ -244,7 +244,7 @@ export function SpaceSetup({
                   />
                 </div>
                 <div>
-                  <Label>Token de invitación (un solo uso)</Label>
+                  <Label>Código de la sala</Label>
                   <div className="flex gap-2">
                     <code className="block flex-1 rounded-md bg-muted p-2 font-mono text-sm tracking-[0.2em] break-all">
                       {invite}
@@ -254,8 +254,8 @@ export function SpaceSetup({
                       variant="secondary"
                       size="icon"
                       onClick={copyInvite}
-                      aria-label="Copiar token"
-                      title="Copiar token"
+                      aria-label="Copiar código"
+                      title="Copiar código"
                       className="shrink-0"
                     >
                       {copied ? (
@@ -313,7 +313,7 @@ export function SpaceSetup({
                   )}
                 </div>
                 <div>
-                  <Label>Token de invitación (un solo uso)</Label>
+                  <Label>Código de la sala</Label>
                   <div className="flex gap-2">
                     <Skeleton className="h-9 flex-1 rounded-md" />
                     <Skeleton className="h-9 w-9 rounded-md" />
@@ -326,7 +326,7 @@ export function SpaceSetup({
                   </div>
                 ) : (
                   <Button onClick={makeInvite} disabled={busy}>
-                    Generar invitación para la otra persona
+                    Generar código
                   </Button>
                 )}
               </div>
@@ -485,7 +485,7 @@ export function SpaceSetup({
             />
           ) : (
             <div className="flex flex-col gap-2">
-              <Label htmlFor="token">Token de invitación</Label>
+              <Label htmlFor="token">Código de la sala</Label>
               <div className="flex gap-2">
                 <Input
                   id="token"

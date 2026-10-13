@@ -312,7 +312,6 @@ export function createApp(deps: AppDeps): (req: Request) => Promise<Response> {
       const res = await createInvite(deps.store, deps.crypto, deps.clock, {
         spaceId,
         actorUserId: me.user.id,
-        ttlSeconds: parsed.data.ttlSeconds,
       });
       if (!res.ok)
         return domainErr(requestId, res.code, "No se pudo crear la invitación");

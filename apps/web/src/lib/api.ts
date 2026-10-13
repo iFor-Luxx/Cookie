@@ -419,8 +419,24 @@ export class ApiClient {
     return this.request(`/v1/pair-spaces/${spaceId}/realtime`);
   }
 
-  async previewBytes(drawingId: string): Promise<Blob> {
+  /** Documento JSON del dibujo (lo renderiza el widget nativo). */
+  async documentText(drawingId: string): Promise<string> {
     const headers = new Headers();
+    headers.set("x-protocol-version", "1");
+    if (this.session)
+      headers.set("authorization", `Bearer ${this.session.accessToken}`);
+    const res = await fetch(`${baseUrl}/v1/drawings/${drawingId}/document`, {
+      headers,
+    });
+    if (!res.ok)
+      throw new ApiError(res.status, "NOT_FOUND", "Documento no disponible");
+    const text = await res.text();
+    if (text.length > 512 * 1024)
+      throw new ApiError(413, "TOO_LARGE", "Documento muy grande");
+    return text;
+  }
+
+  async previewBytes(drawingId: string): Promise<Blob> {    const headers = new Headers();
     if (this.session)
       headers.set("authorization", `Bearer ${this.session.accessToken}`);
     const res = await fetch(`${baseUrl}/v1/drawings/${drawingId}/preview`, {

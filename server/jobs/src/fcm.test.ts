@@ -61,10 +61,15 @@ describe("fcm H8", () => {
     expect(res).toEqual({ sent: 2, failed: 1 });
     expect(seen).toHaveLength(3);
     const first = JSON.parse(seen[0]?.body ?? "{}") as {
-      message: { token: string; data: Record<string, string> };
+      message: {
+        token: string;
+        data: Record<string, string>;
+        android: { priority: string };
+      };
     };
     expect(first.message.data).toEqual({ spaceId: "s1", seq: "9" });
     expect(first.message).not.toHaveProperty("notification");
+    expect(first.message.android).toEqual({ priority: "HIGH" });
     expect(seen[0]?.url).toContain("/projects/proj/messages:send");
   });
 });

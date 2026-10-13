@@ -172,7 +172,7 @@ export function Onboarding({
       onDone(me.pairSpaceId);
     } catch {
       setError(
-        "No se pudo recuperar. Pide un código nuevo al otro teléfono y revisa la contraseña exacta.",
+        "No se pudo recuperar. Pide el código actual en la sala y revisa la contraseña exacta.",
       );
     } finally {
       setBusy(false);
@@ -331,10 +331,12 @@ export function Onboarding({
               Cookie
             </p>
             <CardTitle className="font-serif text-3xl">
-              Hola, ¿cómo te llamas?
+              {recover ? "Vuelve a tu sala" : "Hola, ¿cómo te llamas?"}
             </CardTitle>
             <CardDescription>
-              Nombre visible de 1 a 32 caracteres. Sin contraseñas.
+              {recover
+                ? "Escanea el QR o usa tu código."
+                : "Nombre visible de 1 a 32 caracteres. Sin contraseñas."}
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
@@ -342,7 +344,7 @@ export function Onboarding({
             {!recover ? (
               <>
                 <div className="flex flex-col gap-2">
-                  <Label htmlFor="name">Nombre (cuenta nueva)</Label>
+                  <Label htmlFor="name">Nombre</Label>
                   <Input
                     id="name"
                     value={name}
@@ -364,17 +366,14 @@ export function Onboarding({
                   onClick={() => setRecover(true)}
                   className="text-sm text-muted-foreground underline-offset-4 hover:underline"
                 >
-                  ¿Ya tienes una sala? Vuelve a entrar aquí
+                  Ya tengo una sala
                 </button>
               </>
             ) : (
               <>
                 <div className="flex flex-col items-center gap-2">
                   <p className="text-sm text-muted-foreground">
-                    1. Este teléfono muestra su QR de entrada. 2. En el otro
-                    teléfono, dentro de la sala, pulsa «Escanear QR» y
-                    escanea este código. 3. Entras con tu misma identidad,
-                    sin crear otra sala.
+                    En la sala pulsa Escanear QR y apunta aquí.
                   </p>
                   {attempt ? (
                     <div
@@ -419,12 +418,10 @@ export function Onboarding({
                 </div>
                 <Separator />
                 <p className="text-xs text-muted-foreground">
-                  Sin el otro teléfono a mano no hay código: pídelo por
-                  mensaje o escanea su QR. Junto a tu contraseña vuelves a
-                  la misma sala, sin crear otra.
+                  ¿Sin el otro teléfono? Entra con código:
                 </p>
                 <div className="flex flex-col gap-2">
-                  <Label htmlFor="code">Código de invitación</Label>
+                  <Label htmlFor="code">Código</Label>
                   <Input
                     id="code"
                     value={inviteCode}
@@ -439,13 +436,11 @@ export function Onboarding({
                     spellCheck={false}
                   />
                   <p className="text-xs text-muted-foreground">
-                    El otro teléfono lo genera en su sala con «Invitar».
-                    Un solo uso y caduca en 1 hora: si ya se usó, pide
-                    uno nuevo.
+                    No caduca. Pide el actual en la sala.
                   </p>
                 </div>
                 <div className="flex flex-col gap-2">
-                  <Label htmlFor="secret">Contraseña de recuperación</Label>
+                  <Label htmlFor="secret">Contraseña</Label>
                   <div className="relative">
                     <Input
                       id="secret"

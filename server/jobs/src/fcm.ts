@@ -131,6 +131,9 @@ export async function sendSpacePush(
                 message: {
                   token,
                   data: { spaceId: message.spaceId, seq: String(message.seq) },
+                  // Alta prioridad: con "normal" Doze/OEM retienen el aviso
+                  // minutos. Sigue siendo best-effort (data-only, sin UI).
+                  android: { priority: "HIGH" },
                 },
               }),
             },

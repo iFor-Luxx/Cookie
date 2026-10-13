@@ -101,17 +101,13 @@ export const createPairSpaceResponse = z.object({
 });
 
 // POST /v1/pair-spaces/{id}/invites
+// ttlSeconds se acepta por compat pero se ignora: no caducan.
 export const createInviteRequest = z.object({
-  ttlSeconds: z
-    .number()
-    .int()
-    .min(60)
-    .max(24 * 3600)
-    .default(3600),
+  ttlSeconds: z.number().int().min(60).max(24 * 3600).default(3600).optional(),
 });
 export const createInviteResponse = z.object({
   inviteId: z.string(),
-  // Token de invitación: un solo uso, TTL corto. Compartir por canal privado.
+  // Código de la sala: reutilizable, no caduca (rota al generar otro).
   inviteToken: inviteTokenSchema,
   expiresAt: z.string(),
 });
@@ -176,7 +172,7 @@ export const recoveryChallengeResponse = z.object({
 });
 
 // POST /v1/recovery-challenges — por código de invitación (sin ID de espacio).
-// El código lo genera un miembro desde la sala; un solo uso, TTL corto.
+// El código lo genera un miembro desde la sala; no caduca (rota al generar otro).
 export const recoveryChallengeByInviteRequest = z.object({
   installationId: z.string().min(1),
   inviteToken: z.string().trim().min(1).max(128),
@@ -188,7 +184,7 @@ export const recoveryCompleteRequest = z.object({
   recoverySecret: z.string().min(1),
   platform: platformSchema,
   // Con código + contraseña se entra aunque todos tengan accesos activos:
-  // el código prueba que un miembro autorizó esta entrada y se consume aquí.
+  // el código prueba que un miembro autorizó esta entrada. No se consume.
   inviteToken: z.string().trim().min(1).max(128).optional(),
 });
 export const recoveryCompleteResponse = z.object({

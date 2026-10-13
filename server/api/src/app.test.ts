@@ -107,11 +107,13 @@ describe("API pairing H2", () => {
     expect(meB.json.pairSpaceId).toBe(spaceId);
     expect(meB.json.displayName).toBe("B");
 
+    // Reutilizable: el creador (ya miembro) lo reusa sin error (idempotente).
     const reuse = await call(app, "POST", "/v1/invites/consume", {
       token: accessA,
       body: { inviteToken: token },
     });
-    expect(reuse.status).toBe(409);
+    expect(reuse.status).toBe(201);
+    expect(reuse.json.pairSpaceId).toBe(spaceId);
   }, 30_000);
 
   it("login por QR: el PC muestra, el celular aprueba, misma sala", async () => {
@@ -373,7 +375,7 @@ describe("API pairing H2", () => {
     });
     expect(done.status).toBe(201);
     expect(done.json.userId).toBe(bReg.json.userId);
-    // Código quemado: challenge ficticio y complete 400.
+    // Código reutilizable: sigue valiendo para otra entrada.
     const fake2 = await call(app, "POST", "/v1/recovery-challenges", {
       body: {
         installationId: "otra",
@@ -389,7 +391,7 @@ describe("API pairing H2", () => {
         inviteToken: inv2.json.inviteToken,
       },
     });
-    expect(reuse.status).toBe(400);
+    expect(reuse.status).toBe(201);
   }, 30_000);
 
   it("health y versión de protocolo", async () => {

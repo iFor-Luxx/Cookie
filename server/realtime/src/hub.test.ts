@@ -1,20 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { RECOVERABLE_CLOSE, RoomHub, type RoomSocket } from "./hub";
+import { RoomHub } from "./hub";
 
-function fakeSocket(
-  id: string,
-  failOnSend = false,
-): RoomSocket & { sent: string[]; closed: number | null } {
+// Los handles vivos los resuelve el DO por evento (getWebSockets +
+// attachment): aquí se simulan con un mapa socketId → buzón.
+function livebox() {
+  const sent = new Map<string, string[]>();
+  const dead = new Set<string>();
   return {
-    id,
-    sent: [],
-    closed: null,
-    send(message: string): void {
-      if (failOnSend) throw new Error("buffer lleno");
-      this.sent.push(message);
+    sent,
+    kill(id: string): void {
+      dead.add(id);
     },
-    close(code: number): void {
-      this.closed = code;
+    send(id: string, message: string): boolean {
+      if (dead.has(id)) return false;
+      const box = sent.get(id) ?? [];
+      box.push(message);
+      sent.set(id, box);
+      return true;
     },
   };
 }
@@ -22,53 +24,56 @@ function fakeSocket(
 describe("RoomHub", () => {
   it("fanout entrega a miembros del espacio y aísla espacios", () => {
     const hub = new RoomHub();
-    const a = fakeSocket("a");
-    const b = fakeSocket("b");
-    const other = fakeSocket("c");
-    hub.join("s1", a, "ins-a", 0);
-    hub.join("s1", b, "ins-b", 0);
-    hub.join("s2", other, "ins-c", 0);
-    const res = hub.broadcast("s1", {
-      type: "drawing.created",
-      seq: 1,
-      eventId: "e1",
-    });
+    const live = livebox();
+    hub.join("s1", "a", "ins-a", 0);
+    hub.join("s1", "b", "ins-b", 0);
+    hub.join("s2", "c", "ins-c", 0);
+    const res = hub.broadcast(
+      "s1",
+      { type: "drawing.created", seq: 1, eventId: "e1" },
+      (id, msg) => live.send(id, msg),
+    );
     expect(res).toEqual({ delivered: 2, dropped: 0 });
-    expect(a.sent).toHaveLength(1);
-    expect(other.sent).toHaveLength(0);
+    expect(live.sent.get("a")).toHaveLength(1);
+    expect(live.sent.get("c")).toBeUndefined();
     expect(hub.memberCount("s1")).toBe(2);
     hub.leave("s1", "a");
     expect(hub.memberCount("s1")).toBe(1);
   });
 
-  it("socket lento se cierra recuperable y sale del room", () => {
+  it("handle muerto sale del room sin romper el resto", () => {
     const hub = new RoomHub();
-    const slow = fakeSocket("slow", true);
-    const ok = fakeSocket("ok");
-    hub.join("s1", slow, "ins-s", 0);
-    hub.join("s1", ok, "ins-o", 0);
-    const res = hub.broadcast("s1", { type: "drawing.created", seq: 2 });
+    const live = livebox();
+    live.kill("slow");
+    hub.join("s1", "slow", "ins-s", 0);
+    hub.join("s1", "ok", "ins-o", 0);
+    const res = hub.broadcast(
+      "s1",
+      { type: "drawing.created", seq: 2 },
+      (id, msg) => live.send(id, msg),
+    );
     expect(res).toEqual({ delivered: 1, dropped: 1 });
-    expect(slow.closed).toBe(RECOVERABLE_CLOSE);
     expect(hub.memberCount("s1")).toBe(1);
   });
 
-  it("revocar instalación expulsa sus sockets", () => {
+  it("revocar instalación devuelve sus socketIds para cerrar", () => {
     const hub = new RoomHub();
-    hub.join("s1", fakeSocket("a1"), "ins-a", 0);
-    hub.join("s1", fakeSocket("a2"), "ins-a", 0);
-    hub.join("s1", fakeSocket("b"), "ins-b", 0);
-    expect(hub.evictInstallation("s1", "ins-a")).toBe(2);
+    hub.join("s1", "a1", "ins-a", 0);
+    hub.join("s1", "a2", "ins-a", 0);
+    hub.join("s1", "b", "ins-b", 0);
+    expect(hub.evictInstallation("s1", "ins-a")).toEqual(["a1", "a2"]);
     expect(hub.memberCount("s1")).toBe(1);
   });
 
   it("payload gigante no se distribuye", () => {
     const hub = new RoomHub();
-    hub.join("s1", fakeSocket("a"), "ins-a", 0);
-    const res = hub.broadcast("s1", {
-      type: "drawing.created",
-      blob: "x".repeat(70 * 1024),
-    });
+    const live = livebox();
+    hub.join("s1", "a", "ins-a", 0);
+    const res = hub.broadcast(
+      "s1",
+      { type: "drawing.created", blob: "x".repeat(70 * 1024) },
+      (id, msg) => live.send(id, msg),
+    );
     expect(res.delivered).toBe(0);
   });
 });

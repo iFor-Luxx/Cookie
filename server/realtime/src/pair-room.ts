@@ -88,6 +88,22 @@ export class PairRoom {
     }
   }
 
+  /** Handles vivos por evento: tras hibernar, los cacheados no sirven. */
+  private liveSockets(spaceId: string): Map<string, HibernatingWebSocket> {
+    const out = new Map<string, HibernatingWebSocket>();
+    try {
+      for (const s of this.state.getWebSockets()) {
+        const att = s.deserializeAttachment() as Attachment | null;
+        if (att?.spaceId === spaceId && att.socketId) {
+          out.set(att.socketId, s);
+        }
+      }
+    } catch {
+      // API de hibernación indisponible: fanout vacío (replay por cursor).
+    }
+    return out;
+  }
+
   async fetch(req: Request): Promise<Response> {
     const url = new URL(req.url);
     if (url.pathname === "/notify" && req.method === "POST") {
@@ -101,11 +117,26 @@ export class PairRoom {
         spaceId: string;
         installationId?: string;
       };
+      const live = this.liveSockets(event.spaceId);
       if (event.type === "installation.revoked" && event.installationId) {
-        hub.evictInstallation(event.spaceId, event.installationId);
+        for (const id of hub.evictInstallation(
+          event.spaceId,
+          event.installationId,
+        )) {
+          try {
+            live.get(id)?.close(4401, "revoked");
+          } catch {
+            // Ya cerrado.
+          }
+        }
         return Response.json({ ok: true });
       }
-      hub.broadcast(event.spaceId, event);
+      hub.broadcast(event.spaceId, event, (socketId, message) => {
+        const s = live.get(socketId);
+        if (!s) return false;
+        s.send(message);
+        return true;
+      });
       return Response.json({ ok: true });
     }
     const ticket = url.searchParams.get("ticket");
@@ -125,10 +156,20 @@ export class PairRoom {
       installationId: claimed.installationId,
       socketId,
     } satisfies Attachment);
-    return new Response(null, {
+    // RFC 6455: si el cliente ofreció subprotocolo y el 101 no lo confirma,
+    // el cliente DEBE tumbar la conexión. Nuestro único protocolo es pair.v1
+    // (el versionado real viaja en el hello JSON). Sin este eco, ningún
+    // cliente que lo ofrezca recibe push en vivo.
+    const offered = (req.headers.get("sec-websocket-protocol") ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .find((s) => s === "pair.v1");
+    const init: ResponseInit & { webSocket?: unknown } = {
       status: 101,
       webSocket: client as unknown as WebSocket,
-    } as ResponseInit) as unknown as Response;
+    };
+    if (offered) init.headers = { "Sec-WebSocket-Protocol": offered };
+    return new Response(null, init as ResponseInit) as unknown as Response;
   }
 
   async webSocketMessage(
@@ -163,7 +204,7 @@ export class PairRoom {
       }
       hub.join(
         attachment.spaceId,
-        wrapSocket(socket),
+        attachment.socketId,
         attachment.installationId,
         msg.lastEventSeq ?? 0,
       );
@@ -193,13 +234,4 @@ export class PairRoom {
     const attachment = socket.deserializeAttachment() as Attachment;
     if (attachment.spaceId) hub.leave(attachment.spaceId, attachment.socketId);
   }
-}
-
-function wrapSocket(socket: HibernatingWebSocket): import("./hub").RoomSocket {
-  const attachment = socket.deserializeAttachment() as Attachment;
-  return {
-    id: attachment.socketId,
-    send: (message: string) => socket.send(message),
-    close: (code: number, reason: string) => socket.close(code, reason),
-  };
 }

@@ -15,8 +15,6 @@ const DOC_SIZE = 1024;
 const AUTOSAVE_DEBOUNCE_MS = 800;
 const MAX_DPR = 2;
 
-export type SaveState = "saved" | "saving" | "local";
-
 export type CanvasMode = "draw" | "pan";
 
 interface CanvasBoardProps {
@@ -24,7 +22,6 @@ interface CanvasBoardProps {
   brush: BrushConfig;
   draftStore: DraftStore;
   draftId: string;
-  onSaveState: (s: SaveState) => void;
   onStrokesVersion: () => void;
   /** Notifica la escala actual (para mostrar el % de zoom). */
   onZoom?: (scale: number) => void;
@@ -42,7 +39,6 @@ export function CanvasBoard({
   brush,
   draftStore,
   draftId,
-  onSaveState,
   onStrokesVersion,
   dashed = false,
   mode = "draw",
@@ -62,8 +58,8 @@ export function CanvasBoard({
   brushRef.current = brush;
   const modeRef = useRef(mode);
   modeRef.current = mode;
-  const callbacksRef = useRef({ onSaveState, onStrokesVersion, onZoom });
-  callbacksRef.current = { onSaveState, onStrokesVersion, onZoom };
+  const callbacksRef = useRef({ onStrokesVersion, onZoom });
+  callbacksRef.current = { onStrokesVersion, onZoom };
   const drawingRef = useRef(false);
   const saveTimer = useRef<number | null>(null);
   const lastZoomRef = useRef(1);
@@ -156,14 +152,14 @@ export function CanvasBoard({
       if (!cancelled) drawBase();
     })();
 
+    // Autosave silencioso del borrador (dura hasta publicar): sin
+    // etiqueta aparte en la UI, el outbox manda tras Enviar.
     const scheduleSave = (): void => {
-      callbacksRef.current.onSaveState("saving");
       if (saveTimer.current !== null) window.clearTimeout(saveTimer.current);
       saveTimer.current = window.setTimeout(() => {
         void draftStore
           .saveDraft(draftId, engine.exportDocument())
-          .then(() => callbacksRef.current.onSaveState("saved"))
-          .catch(() => callbacksRef.current.onSaveState("local"));
+          .catch(() => undefined);
       }, AUTOSAVE_DEBOUNCE_MS);
     };
 
@@ -419,7 +415,6 @@ export function CanvasBoard({
         // (El "Salir" rápido era la forma de perder el final del dibujo.)
         void draftStore
           .saveDraft(draftId, engine.exportDocument())
-          .then(() => callbacksRef.current.onSaveState("saved"))
           .catch(() => undefined);
       }
       wrap.removeEventListener("pointerdown", onPointerDown);

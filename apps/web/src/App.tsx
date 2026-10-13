@@ -5,6 +5,7 @@ import {
   serializeDocument,
 } from "@cookie/drawing";
 import { createDraftStore, indexedDbBackend } from "@cookie/platform-web";
+import { Capacitor } from "@capacitor/core";
 import {
   ArrowLeft,
   Download,
@@ -18,11 +19,7 @@ import {
 } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import {
-  CanvasBoard,
-  type CanvasMode,
-  type SaveState,
-} from "@/components/canvas/CanvasBoard";
+import { CanvasBoard, type CanvasMode } from "@/components/canvas/CanvasBoard";
 import { Toolbar } from "@/components/canvas/Toolbar";
 import { InviteDialog } from "@/components/studio/InviteDialog";
 import { LoginQrDialog } from "@/components/studio/LoginQrDialog";
@@ -65,18 +62,24 @@ import {
 
 const DRAFT_ID = "local";
 
+// En Android los botones de arriba van solo con icono (pantalla corta);
+// en web conservan su texto.
+function androidIconsOnly(): boolean {
+  try {
+    return (
+      Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android"
+    );
+  } catch {
+    return false;
+  }
+}
+
 // H7: Historial fuera del chunk inicial (solo se carga al abrir la pestaña).
 const History = lazy(() =>
   import("@/components/studio/History").then((m) => ({ default: m.History })),
 );
 
 type Screen = "boot" | "onboarding" | "setup" | "studio";
-
-const SAVE_LABEL: Record<SaveState, string> = {
-  saved: "Borrador guardado",
-  saving: "Guardando…",
-  local: "Solo local",
-};
 
 export function App(): React.JSX.Element {
   const engine = useMemo(
@@ -115,7 +118,6 @@ export function App(): React.JSX.Element {
       }
   >({ phase: "idle" });
   const updateCheckedRef = useRef(false);
-  const [saveState, setSaveState] = useState<SaveState>("local");
   const [, setVersion] = useState(0);
   const [pending, setPending] = useState(0);
   const [failed, setFailed] = useState(0);
@@ -231,6 +233,7 @@ export function App(): React.JSX.Element {
     const onOnline = (): void => {
       void syncEngine.pump();
       void client.refresh();
+      void uploadFcmTokenIfPresent();
     };
     window.addEventListener("online", onOnline);
     const timer = window.setInterval(() => void syncEngine.pump(), 10_000);
@@ -258,11 +261,20 @@ export function App(): React.JSX.Element {
         doc.canvas.width,
         doc.canvas.height,
       );
-      toast("En cola para publicar");
-      const st = await syncEngine.pump();
+      // Sin borrador aparte: el dibujo ya vive en el outbox. Limpia el
+      // lienzo y vuelve al inicio; el envío sigue en 2do plano.
+      engine.loadDocument({ ...doc, strokes: [] });
+      await draftStore.clearDraft(DRAFT_ID).catch(() => undefined);
+      setVersion((v) => v + 1);
       setHistoryKey((k) => k + 1);
-      // A envía y sigue en el lienzo: el historial es solo de recibidos.
+      setTab("historial");
+      const st = await syncEngine.pump();
+      // El token FCM puede nacer después de entrar al estudio: reintentar
+      // la subida aquí (idempotente) para que el push llegue a este teléfono.
+      void uploadFcmTokenIfPresent();
+      // Un solo aviso según el resultado, no dos.
       if (st.pending === 0 && st.failed === 0) toast.success("Enviado");
+      else toast("En cola para publicar");
     } catch {
       toast.error("No se pudo encolar");
     }
@@ -297,57 +309,60 @@ export function App(): React.JSX.Element {
       <Toaster />
       {tab === "lienzo" ? (
         <div className="relative flex h-dvh flex-col overflow-hidden">
-          <div className="pointer-events-none absolute inset-x-0 top-4 z-20 flex justify-center px-4">
+          <div className="pointer-events-none absolute inset-x-0 top-[calc(1rem+env(safe-area-inset-top))] z-20 flex justify-center px-4">
             <div className="pointer-events-none flex w-full max-w-3xl items-start justify-between gap-2">
-              {confirmKind === "exit" ? (
-                <div className="liquid-glass pointer-events-auto flex w-full items-center justify-between gap-2 rounded-full py-1.5 pr-1.5 pl-1.5 shadow-lg">
-                  <span className="pl-2 text-sm font-medium">
-                    ¿Seguro de salir?
-                  </span>
-                  <div className="flex items-center gap-1.5">
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      className="rounded-full"
-                      onClick={closeConfirm}
-                    >
-                      No
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        closeConfirm();
-                        setTab("historial");
-                      }}
-                      className="rounded-full bg-red-500 text-white shadow-sm hover:bg-red-500/90"
-                    >
-                      Sí, salir
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <Button
-                    size="sm"
-                    aria-label="Salir a recibidos"
-                    title="Salir a recibidos"
-                    onClick={() => setConfirmKind("exit")}
-                    className="pointer-events-auto rounded-full bg-red-500 text-white shadow-lg hover:bg-red-500/90"
-                  >
-                    <ArrowLeft className="size-4" aria-hidden />
-                    Salir
-                  </Button>
-                  <Button
-                    size="sm"
-                    className="pointer-events-auto rounded-full shadow-lg"
-                    onClick={publish}
-                  >
-                    Enviar
-                  </Button>
-                </>
-              )}
+              <Button
+                size="sm"
+                aria-label="Salir a recibidos"
+                title="Salir a recibidos"
+                onClick={() => setConfirmKind("exit")}
+                className="pointer-events-auto rounded-full bg-red-500 text-white shadow-lg hover:bg-red-500/90"
+              >
+                <ArrowLeft className="size-4" aria-hidden />
+                Salir
+              </Button>
+              <Button
+                size="sm"
+                className="pointer-events-auto rounded-full shadow-lg"
+                onClick={publish}
+              >
+                Enviar
+              </Button>
             </div>
           </div>
+          <Dialog
+            open={confirmKind === "exit"}
+            onOpenChange={(open) => {
+              if (!open) closeConfirm();
+            }}
+          >
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>¿Seguro de salir?</DialogTitle>
+              </DialogHeader>
+              <p className="text-sm text-muted-foreground">
+                Tu dibujo se conserva y podrás seguirlo al volver.
+              </p>
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="secondary"
+                  onClick={closeConfirm}
+                  className="rounded-full"
+                >
+                  No
+                </Button>
+                <Button
+                  onClick={() => {
+                    closeConfirm();
+                    setTab("historial");
+                  }}
+                  className="rounded-full bg-red-500 text-white shadow-sm hover:bg-red-500/90"
+                >
+                  Sí, salir
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
           <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden px-4 pt-24 pb-36">
             <CanvasBoard
               engine={engine}
@@ -358,7 +373,6 @@ export function App(): React.JSX.Element {
               mode={canvasMode}
               resetViewSignal={viewReset}
               onZoom={setZoom}
-              onSaveState={setSaveState}
               onStrokesVersion={() => setVersion((v) => v + 1)}
             />
           </div>
@@ -458,52 +472,54 @@ export function App(): React.JSX.Element {
               />
             </div>
           </div>
-          <div className="pointer-events-none absolute inset-x-0 bottom-1 z-10 flex items-center justify-center gap-2 text-[11px] text-muted-foreground">
-            <span>
-              {SAVE_LABEL[saveState]}
-              {pending > 0 && ` · ${pending} pendiente`}
-            </span>
-            {failed > 0 && (
-              <Button
-                variant="link"
-                size="sm"
-                onClick={() => void syncEngine.retryAllFailed()}
-                className="pointer-events-auto h-auto p-0 text-[11px]"
-              >
-                <RefreshCw className="size-3" aria-hidden /> Reintentar (
-                {failed})
-              </Button>
-            )}
-          </div>
         </div>
       ) : (
-        <div className="mx-auto flex max-w-3xl flex-col gap-5 px-4 py-8">
+        <div className="mx-auto flex max-w-3xl flex-col gap-5 px-4 pb-8 pt-[calc(2rem+env(safe-area-inset-top))]">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-1">
               <LoginQrDialog
-                label="Escanear QR"
+                {...(androidIconsOnly() ? {} : { label: "Escanear QR" })}
                 className="rounded-full bg-white text-slate-800 shadow-sm hover:bg-white/90 dark:bg-white dark:text-slate-800"
               />
               <InviteDialog
                 spaceId={id}
-                label="Invitar"
+                {...(androidIconsOnly() ? {} : { label: "Invitar" })}
                 className="rounded-full bg-white text-slate-800 shadow-sm hover:bg-white/90 dark:bg-white dark:text-slate-800"
               />
               <Button
                 variant="ghost"
-                size="sm"
+                size={androidIconsOnly() ? "icon" : "sm"}
                 aria-label="Abandonar sala"
+                title="Abandonar sala"
                 onClick={() => setConfirmKind("logout")}
                 className="rounded-full bg-red-500/15 text-red-600 hover:bg-red-500/25 hover:text-red-600 dark:text-red-400 dark:hover:text-red-400"
               >
                 <LogOut className="size-4" aria-hidden />
-                Abandonar sala
+                {!androidIconsOnly() && "Abandonar sala"}
               </Button>
             </div>
             <Button className="rounded-full" onClick={() => setTab("lienzo")}>
               Dibujar
             </Button>
           </div>
+          {(pending > 0 || failed > 0) && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span>
+                {pending > 0 ? `${pending} por enviar…` : "No se pudo enviar"}
+              </span>
+              {failed > 0 && (
+                <Button
+                  variant="link"
+                  size="sm"
+                  onClick={() => void syncEngine.retryAllFailed()}
+                  className="h-auto p-0 text-xs"
+                >
+                  <RefreshCw className="size-3" aria-hidden /> Reintentar (
+                  {failed})
+                </Button>
+              )}
+            </div>
+          )}
           {update.phase !== "idle" && (
             <Card className="border-primary/40">
               <CardContent className="flex flex-col gap-2 pt-4">
