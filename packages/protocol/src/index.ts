@@ -173,9 +173,17 @@ export const recoveryChallengeResponse = z.object({
 
 // POST /v1/recovery-challenges — por código de invitación (sin ID de espacio).
 // El código lo genera un miembro desde la sala; permanente, no caduca.
+// Incluye los miembros para elegir quién vuelve (estilo Netflix).
 export const recoveryChallengeByInviteRequest = z.object({
   installationId: z.string().min(1),
   inviteToken: z.string().trim().min(1).max(128),
+});
+export const recoveryChallengeByInviteResponse = z.object({
+  challengeId: z.string(),
+  expiresAt: z.string(),
+  members: z
+    .array(z.object({ userId: z.string(), displayName: z.string() }))
+    .max(2),
 });
 
 // POST /v1/recovery/complete
@@ -186,6 +194,8 @@ export const recoveryCompleteRequest = z.object({
   // Con código + contraseña se entra aunque todos tengan accesos activos:
   // el código prueba que un miembro autorizó esta entrada. No se consume.
   inviteToken: z.string().trim().min(1).max(128).optional(),
+  // Quién vuelve (elegido en el picker). Debe ser miembro activo de la sala.
+  asUserId: z.string().min(1).optional(),
 });
 export const recoveryCompleteResponse = z.object({
   userId: z.string(),

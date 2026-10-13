@@ -552,15 +552,18 @@ describe("pairing H2", () => {
     });
     expect(ch.ok).toBe(true);
     if (!ch.ok) return;
+    expect(
+      ch.value.members.map((m) => m.displayName).sort(),
+    ).toEqual(["A", "B"]);
     // Contraseña mal: no entra (el código sigue valiendo).
     const wrong = await completeRecovery(store, crypto, clock, {
-      challengeId: ch.value.id,
+      challengeId: ch.value.challenge.id,
       recoverySecret: "otra-cosa",
       platform: "android",
     });
     expect(wrong).toEqual({ ok: false, code: "NOT_FOUND" });
     const done = await completeRecovery(store, crypto, clock, {
-      challengeId: ch.value.id,
+      challengeId: ch.value.challenge.id,
       recoverySecret: "contraseña-larga",
       platform: "android",
       inviteToken: inv2.value.inviteToken,
@@ -585,6 +588,74 @@ describe("pairing H2", () => {
       inviteToken: inv2.value.inviteToken,
     });
     expect(stillValid.ok).toBe(true);
+  });
+
+  it("recovery con picker: asUserId manda sobre la heurística", async () => {
+    const store = memoryStore();
+    const crypto = stubCrypto();
+    const clock = stubClock();
+    const a = await registerInstallation(store, crypto, clock, {
+      platform: "web",
+      displayName: "A",
+    });
+    if (!a.ok) return;
+    const space = await createPairSpace(store, crypto, clock, {
+      userId: a.value.user.id,
+      recoverySecret: "contraseña-larga",
+    });
+    if (!space.ok) return;
+    const spaceId = space.value.space.id;
+    const inv1 = await createInvite(store, crypto, clock, {
+      spaceId,
+      actorUserId: a.value.user.id,
+    });
+    if (!inv1.ok) return;
+    const bReg = await registerInstallation(store, crypto, clock, {
+      platform: "android",
+      displayName: "B",
+    });
+    if (!bReg.ok) return;
+    const joined = await consumeInvite(store, crypto, clock, {
+      token: inv1.value.inviteToken,
+      userId: bReg.value.user.id,
+    });
+    if (!joined.ok) return;
+    // Código generado por A: la heurística ataría a B, pero quien vuelve
+    // elige ser A (es su teléfono).
+    const inv2 = await createInvite(store, crypto, clock, {
+      spaceId,
+      actorUserId: a.value.user.id,
+    });
+    if (!inv2.ok) return;
+    const ch = await startRecoveryByInvite(store, crypto, clock, {
+      installationId: "nueva-a",
+      inviteToken: inv2.value.inviteToken,
+    });
+    expect(ch.ok).toBe(true);
+    if (!ch.ok) return;
+    const done = await completeRecovery(store, crypto, clock, {
+      challengeId: ch.value.challenge.id,
+      recoverySecret: "contraseña-larga",
+      platform: "android",
+      inviteToken: inv2.value.inviteToken,
+      asUserId: a.value.user.id,
+    });
+    expect(done.ok).toBe(true);
+    if (done.ok) expect(done.value.user.id).toBe(a.value.user.id);
+    // asUserId de otra sala: indistinguible.
+    const ch2 = await startRecoveryByInvite(store, crypto, clock, {
+      installationId: "nueva-x",
+      inviteToken: inv2.value.inviteToken,
+    });
+    if (!ch2.ok) return;
+    const impostor = await completeRecovery(store, crypto, clock, {
+      challengeId: ch2.value.challenge.id,
+      recoverySecret: "contraseña-larga",
+      platform: "android",
+      inviteToken: inv2.value.inviteToken,
+      asUserId: "id-inexistente",
+    });
+    expect(impostor).toEqual({ ok: false, code: "NOT_FOUND" });
   });
 
   it("login por QR: el PC muestra, el celular aprueba, misma sala", async () => {

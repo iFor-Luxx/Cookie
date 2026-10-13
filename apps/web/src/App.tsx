@@ -1,3 +1,4 @@
+import { Capacitor } from "@capacitor/core";
 import {
   type BrushConfig,
   createDrawingEngine,
@@ -5,7 +6,6 @@ import {
   serializeDocument,
 } from "@cookie/drawing";
 import { createDraftStore, indexedDbBackend } from "@cookie/platform-web";
-import { Capacitor } from "@capacitor/core";
 import {
   ArrowLeft,
   Download,
@@ -90,6 +90,8 @@ export function App(): React.JSX.Element {
   const draftStore = useMemo(() => createDraftStore(indexedDbBackend()), []);
   const [screen, setScreen] = useState<Screen>("boot");
   const [spaceId, setSpaceId] = useState<string | null>(null);
+  // Quién soy en esta sala (para no confundir teléfonos tras recuperar).
+  const [myName, setMyName] = useState<string | null>(null);
   // Entrada al estudio con barrido de salida (135°): el estudio se
   // monta detrás del overlay y el wipe lo revela.
   const [entering, setEntering] = useState<string | null>(null);
@@ -153,6 +155,7 @@ export function App(): React.JSX.Element {
         .then((me) => {
           if (me.pairSpaceId) {
             setSpaceId(me.pairSpaceId);
+            setMyName(me.displayName);
             setScreen("studio");
           } else {
             setScreen("setup");
@@ -611,6 +614,7 @@ export function App(): React.JSX.Element {
                         onClick={() => {
                           realtimeRef.current?.stop();
                           setSyncSpace(null);
+                          setMyName(null);
                           api.logout();
                           closeConfirm();
                           setScreen("onboarding");
@@ -649,7 +653,7 @@ export function App(): React.JSX.Element {
             </Dialog>
           )}
           <h2 className="font-pixel text-sm tracking-widest text-muted-foreground uppercase">
-            Recibidos:
+            Recibidos{myName ? ` (eres ${myName})` : ""}:
           </h2>
           <Suspense
             fallback={

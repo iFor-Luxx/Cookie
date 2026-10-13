@@ -298,7 +298,10 @@ export class ApiClient {
   async recoveryChallengeByInvite(
     installationId: string,
     inviteToken: string,
-  ): Promise<{ challengeId: string }> {
+  ): Promise<{
+    challengeId: string;
+    members: Array<{ userId: string; displayName: string }>;
+  }> {
     return this.post("/v1/recovery-challenges", {
       installationId,
       inviteToken,
@@ -309,6 +312,7 @@ export class ApiClient {
     challengeId: string,
     recoverySecret: string,
     inviteToken?: string,
+    asUserId?: string,
   ): Promise<void> {
     const platform: Platform =
       typeof window !== "undefined" && "Capacitor" in window
@@ -319,6 +323,7 @@ export class ApiClient {
       recoverySecret,
       platform,
       ...(inviteToken !== undefined ? { inviteToken } : {}),
+      ...(asUserId !== undefined ? { asUserId } : {}),
     })) as {
       userId: string;
       installationId: string;

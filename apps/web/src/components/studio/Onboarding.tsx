@@ -69,6 +69,11 @@ export function Onboarding({
   const [recover, setRecover] = useState(false);
   const [inviteCode, setInviteCode] = useState("");
   const [secret, setSecret] = useState("");
+  const [challenge, setChallenge] = useState<{
+    id: string;
+    members: Array<{ userId: string; displayName: string }>;
+  } | null>(null);
+  const [picked, setPicked] = useState<string | null>(null);
   const [showSecret, setShowSecret] = useState(false);
   // Entrada estilo WhatsApp Web: este PC muestra su QR y el celular con
   // sesión lo escanea para aprobar. Sin escribir nada aquí.
@@ -165,8 +170,34 @@ export function Onboarding({
       const code = formatInviteTokenInput(inviteCode);
       if (!code) throw new Error("código vacío");
       const installationId = crypto.randomUUID();
+      // Paso 1: el código localiza la sala y trae sus miembros.
       const ch = await api.recoveryChallengeByInvite(installationId, code);
-      await api.recoveryComplete(ch.challengeId, secret.trim(), code);
+      setChallenge({ id: ch.challengeId, members: ch.members });
+      if (ch.members.length === 1 && ch.members[0]) {
+        setPicked(ch.members[0].userId);
+      } else {
+        setPicked(null);
+      }
+    } catch {
+      setError("No se pudo localizar la sala. Revisa el código.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const doEnter = async (): Promise<void> => {
+    if (!challenge) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const code = formatInviteTokenInput(inviteCode);
+      // Paso 2: contraseña + quién vuelve (elegido, no adivinado).
+      await api.recoveryComplete(
+        challenge.id,
+        secret.trim(),
+        code,
+        picked ?? undefined,
+      );
       // La recuperación deja sesión: entrar directo a la misma sala.
       const me = await api.me();
       onDone(me.pairSpaceId);
@@ -424,27 +455,61 @@ export function Onboarding({
                 <p className="text-xs text-muted-foreground">
                   ¿Sin el otro teléfono? Entra con código:
                 </p>
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="code">Código</Label>
-                  <Input
-                    id="code"
-                    value={inviteCode}
-                    onChange={(e) =>
-                      setInviteCode(formatInviteTokenInput(e.target.value))
-                    }
-                    className="font-mono tracking-[0.2em] uppercase"
-                    placeholder="9 caracteres"
-                    maxLength={9}
-                    autoCapitalize="characters"
-                    autoComplete="off"
-                    spellCheck={false}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    No caduca: cualquier código de la sala vale.
-                  </p>
-                </div>
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="secret">Contraseña</Label>
+                {!challenge ? (
+                  <>
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="code">Código</Label>
+                      <Input
+                        id="code"
+                        value={inviteCode}
+                        onChange={(e) =>
+                          setInviteCode(formatInviteTokenInput(e.target.value))
+                        }
+                        className="font-mono tracking-[0.2em] uppercase"
+                        placeholder="9 caracteres"
+                        maxLength={9}
+                        autoCapitalize="characters"
+                        autoComplete="off"
+                        spellCheck={false}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        No caduca: cualquier código de la sala vale.
+                      </p>
+                    </div>
+                    {error && (
+                      <p className="text-sm text-destructive">{error}</p>
+                    )}
+                    <Button
+                      onClick={doRecover}
+                      disabled={busy || !inviteCode.trim()}
+                    >
+                      Continuar
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    {challenge.members.length > 1 && (
+                      <div className="flex flex-col gap-2">
+                        <Label>¿Quién vuelve a entrar?</Label>
+                        <div className="flex gap-2">
+                          {challenge.members.map((m) => (
+                            <Button
+                              key={m.userId}
+                              type="button"
+                              variant={
+                                picked === m.userId ? "default" : "secondary"
+                              }
+                              onClick={() => setPicked(m.userId)}
+                              className="flex-1"
+                            >
+                              {m.displayName}
+                            </Button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="secret">Contraseña</Label>
                   <div className="relative">
                     <Input
                       id="secret"
@@ -481,15 +546,34 @@ export function Onboarding({
                 </div>
                 {error && <p className="text-sm text-destructive">{error}</p>}
                 <Button
-                  onClick={doRecover}
-                  disabled={busy || !inviteCode.trim() || !secret}
+                  onClick={doEnter}
+                  disabled={
+                    busy ||
+                    !secret ||
+                    (challenge.members.length > 1 && !picked)
+                  }
                 >
-                  Recuperar
+                  Entrar a la sala
                 </Button>
                 <button
                   type="button"
                   onClick={() => {
+                    setChallenge(null);
+                    setPicked(null);
+                    setError(null);
+                  }}
+                  className="text-sm text-muted-foreground underline-offset-4 hover:underline"
+                >
+                  Cambiar código
+                </button>
+                </>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
                     setRecover(false);
+                    setChallenge(null);
+                    setPicked(null);
                     setAttempt(null);
                     setAttemptError(null);
                   }}

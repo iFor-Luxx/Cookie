@@ -355,6 +355,11 @@ describe("API pairing H2", () => {
       },
     });
     expect(ch.status).toBe(201);
+    expect(
+      (ch.json.members as Array<{ displayName: string }>)
+        .map((m) => m.displayName)
+        .sort(),
+    ).toEqual(["A", "B"]);
     // Contraseña mal: 400 sin quemar el código (reintento vale).
     const bad = await call(app, "POST", "/v1/recovery/complete", {
       body: {

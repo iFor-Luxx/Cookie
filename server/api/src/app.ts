@@ -576,6 +576,7 @@ export function createApp(deps: AppDeps): (req: Request) => Promise<Response> {
         (await readJson(req)) ?? {},
       );
       let challengeId: string | null = null;
+      let members: Array<{ userId: string; displayName: string }> = [];
       if (parsed.success) {
         const res = await startRecoveryByInvite(
           deps.store,
@@ -586,9 +587,16 @@ export function createApp(deps: AppDeps): (req: Request) => Promise<Response> {
             inviteToken: parsed.data.inviteToken,
           },
         );
-        if (res.ok) challengeId = res.value.id;
+        if (res.ok) {
+          challengeId = res.value.challenge.id;
+          members = res.value.members.map((m) => ({
+            userId: m.userId,
+            displayName: m.displayName,
+          }));
+        }
       }
-      // Indistinguible igual que la ruta por espacio: challenge ficticio.
+      // Indistinguible igual que la ruta por espacio: challenge ficticio
+      // (con lista vacía para no delatar si el código valía).
       const now = deps.clock.nowIso();
       return Response.json(
         {
@@ -596,6 +604,7 @@ export function createApp(deps: AppDeps): (req: Request) => Promise<Response> {
           expiresAt: new Date(
             new Date(now).getTime() + 600_000,
           ).toISOString(),
+          members,
         },
         { status: 201 },
       );
@@ -620,6 +629,9 @@ export function createApp(deps: AppDeps): (req: Request) => Promise<Response> {
         platform: parsed.data.platform,
         ...(parsed.data.inviteToken !== undefined
           ? { inviteToken: parsed.data.inviteToken }
+          : {}),
+        ...(parsed.data.asUserId !== undefined
+          ? { asUserId: parsed.data.asUserId }
           : {}),
       });
       if (!res.ok) {

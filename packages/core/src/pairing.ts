@@ -280,12 +280,21 @@ export async function startRecovery(
  * El código debe ser el actual de una sala activa; si no,
  * NOT_FOUND indistinguible (el llamante responde challenge ficticio).
  */
+export interface RoomMember {
+  readonly userId: string;
+  readonly displayName: string;
+}
+
+/**
+ * Challenge por código de invitación (sin saber el ID del espacio).
+ * Devuelve también los miembros activos para elegir quién vuelve.
+ */
 export async function startRecoveryByInvite(
   store: PairingStore,
   crypto: CryptoPort,
   clock: ClockPort,
   input: { installationId: string; inviteToken: string },
-): Promise<Result<RecoveryChallenge>> {
+): Promise<Result<{ challenge: RecoveryChallenge; members: RoomMember[] }>> {
   const invite = await findInviteByToken(store, crypto, input.inviteToken);
   const now = clock.nowIso();
   if (!invite) {
@@ -304,7 +313,12 @@ export async function startRecoveryByInvite(
     consumedAt: null,
   };
   await store.insertRecoveryChallenge(challenge);
-  return { ok: true, value: challenge };
+  const members: RoomMember[] = [];
+  for (const m of await store.activeMemberships(space.id)) {
+    const user = await store.findUser(m.userId);
+    if (user) members.push({ userId: user.id, displayName: user.displayName });
+  }
+  return { ok: true, value: { challenge, members } };
 }
 
 export async function completeRecovery(
@@ -316,6 +330,7 @@ export async function completeRecovery(
     recoverySecret: string;
     platform: Platform;
     inviteToken?: string;
+    asUserId?: string;
   },
 ): Promise<Result<RegisteredInstallation>> {
   const challenge = await store.findRecoveryChallenge(input.challengeId);
@@ -355,10 +370,20 @@ export async function completeRecovery(
     if (!invite || invite.pairSpaceId !== challenge.pairSpaceId) {
       return { ok: false, code: "NOT_FOUND" };
     }
-    // El código lo generó el miembro que ayuda; quien vuelve es el OTRO.
-    // (En empate el ranking iría al más antiguo: el creador.)
-    const other = ranked.find((r) => r.m.userId !== invite.createdBy);
-    userId = (other ?? target).m.userId;
+    if (input.asUserId !== undefined) {
+      // Picker estilo Netflix: quien vuelve elige su identidad. Debe ser
+      // miembro activo de ESTA sala; si no, indistinguible.
+      const chosen = members.find(
+        (m) => m.userId === input.asUserId && m.leftAt === null,
+      );
+      if (!chosen) return { ok: false, code: "NOT_FOUND" };
+      userId = chosen.userId;
+    } else {
+      // Sin elección: el código lo generó el miembro que ayuda; quien
+      // vuelve es el OTRO. (En empate el ranking iría al creador.)
+      const other = ranked.find((r) => r.m.userId !== invite.createdBy);
+      userId = (other ?? target).m.userId;
+    }
   } else if (target.n > 0) {
     return { ok: false, code: "FORBIDDEN" };
   }

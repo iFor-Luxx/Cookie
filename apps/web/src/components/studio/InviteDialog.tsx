@@ -12,9 +12,10 @@ import { inviteQrPayload } from "@/lib/invite-qr";
 import { InviteQr } from "./InviteQr";
 
 /**
- * El teléfono que está en la sala muestra un código al otro
- * (recuperar su acceso con código + contraseña). Permanente: no caduca
- * ni se invalida, cualquier código de la sala vale.
+ * El teléfono que está en la sala muestra el código al otro
+ * (recuperar su acceso con código + contraseña). Un solo código por
+ * sala: permanente, no caduca ni se invalida al usarse. Se genera una
+ * vez por sesión y no se restablece solo.
  */
 export function InviteDialog({
   spaceId,
@@ -59,10 +60,11 @@ export function InviteDialog({
         aria-label="Generar código para el otro teléfono"
         title="Generar código para el otro teléfono"
         onClick={() => {
-          setToken(null);
           setError(null);
           setOpen(true);
-          void make();
+          // Un solo código: si ya hay uno en esta sesión se muestra ese,
+          // no se genera otro (generar es barato pero cambia el código).
+          if (!token && !busy) void make();
         }}
         className={className}
       >
@@ -76,7 +78,7 @@ export function InviteDialog({
             <p className="text-sm text-muted-foreground">
               Dicta o comparte este código: en su pantalla de volver a
               entrar lo escribe junto a la contraseña y vuelve a la misma
-              sala. No caduca.
+              sala. Es el único de la sala: no caduca ni se invalida.
             </p>
           </DialogHeader>
           <div className="flex flex-col items-center gap-3">
@@ -106,13 +108,6 @@ export function InviteDialog({
                     )}
                   </Button>
                 </div>
-                <Button
-                  variant="secondary"
-                  onClick={() => void make()}
-                  disabled={busy}
-                >
-                  Generar otro
-                </Button>
               </>
             ) : (
               <p className="text-sm text-muted-foreground" aria-live="polite">

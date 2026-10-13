@@ -20,7 +20,7 @@ class WidgetPlugin : Plugin() {
         val drawingId = call.getString("drawingId")
             ?: return call.reject("Falta drawingId")
         val createdAt = call.getString("createdAt") ?: ""
-        val cursor = call.getInt("cursor", 0)
+        val cursor = call.getInt("cursor", 0) ?: 0
         val doc = call.getString("doc")
             ?: return call.reject("Falta doc")
         if (
