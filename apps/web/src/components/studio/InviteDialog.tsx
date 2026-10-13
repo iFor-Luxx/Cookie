@@ -12,9 +12,9 @@ import { inviteQrPayload } from "@/lib/invite-qr";
 import { InviteQr } from "./InviteQr";
 
 /**
- * El teléfono que está en la sala muestra el código actual al otro
- * (recuperar su acceso con código + contraseña). No caduca: cada vez
- * que se genera uno nuevo, el anterior deja de valer.
+ * El teléfono que está en la sala muestra un código al otro
+ * (recuperar su acceso con código + contraseña). Permanente: no caduca
+ * ni se invalida, cualquier código de la sala vale.
  */
 export function InviteDialog({
   spaceId,

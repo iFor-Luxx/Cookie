@@ -170,10 +170,14 @@ export function Onboarding({
       // La recuperación deja sesión: entrar directo a la misma sala.
       const me = await api.me();
       onDone(me.pairSpaceId);
-    } catch {
-      setError(
-        "No se pudo recuperar. Pide el código actual en la sala y revisa la contraseña exacta.",
-      );
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 429) {
+        setError("Demasiados intentos. Espera un minuto y reintenta.");
+      } else {
+        setError(
+          "No se pudo recuperar. Revisa el código y la contraseña exacta.",
+        );
+      }
     } finally {
       setBusy(false);
     }
@@ -436,7 +440,7 @@ export function Onboarding({
                     spellCheck={false}
                   />
                   <p className="text-xs text-muted-foreground">
-                    No caduca. Pide el actual en la sala.
+                    No caduca: cualquier código de la sala vale.
                   </p>
                 </div>
                 <div className="flex flex-col gap-2">

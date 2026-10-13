@@ -244,7 +244,8 @@ describe("pairing H2", () => {
     });
     expect(reuse).toEqual({ ok: false, code: "PAIRSPACE_FULL" });
 
-    // Generar otro rota el anterior: el viejo deja de valer.
+    // Generar otro NO invalida el anterior: ambos valen igual
+    // (la sala está llena con A+B, así que un tercero no entra).
     const inv2 = await createInvite(store, crypto, clock, {
       spaceId: space.value.space.id,
       actorUserId: a.value.user.id,
@@ -255,12 +256,56 @@ describe("pairing H2", () => {
       token: inv.value.inviteToken,
       userId: cReg.value.user.id,
     });
-    expect(rotated).toEqual({ ok: false, code: "INVITE_EXPIRED" });
+    expect(rotated).toEqual({ ok: false, code: "PAIRSPACE_FULL" });
     const c = await consumeInvite(store, crypto, clock, {
       token: inv2.value.inviteToken,
       userId: cReg.value.user.id,
     });
     expect(c).toEqual({ ok: false, code: "PAIRSPACE_FULL" });
+  });
+
+  it("códigos viejos quemados o vencidos siguen valiendo", async () => {
+    const store = memoryStore();
+    const crypto = stubCrypto();
+    const clock = stubClock();
+    const a = await registerInstallation(store, crypto, clock, {
+      platform: "web",
+      displayName: "A",
+    });
+    if (!a.ok) return;
+    const space = await createPairSpace(store, crypto, clock, {
+      userId: a.value.user.id,
+    });
+    if (!space.ok) return;
+    // Invite al estilo antiguo: quemado y con TTL vencido.
+    await store.insertInvite({
+      id: crypto.newId(),
+      pairSpaceId: space.value.space.id,
+      tokenHash: await crypto.lookupHash("AAAAAAAAA"),
+      createdBy: a.value.user.id,
+      createdAt: "2020-01-01T00:00:00.000Z",
+      expiresAt: "2020-01-01T01:00:00.000Z",
+      consumedAt: "2020-01-01T00:00:01.000Z",
+      consumedBy: "alguien",
+    });
+    const bReg = await registerInstallation(store, crypto, clock, {
+      platform: "web",
+      displayName: "B",
+    });
+    if (!bReg.ok) return;
+    const joined = await consumeInvite(store, crypto, clock, {
+      token: "AAAAAAAAA",
+      userId: bReg.value.user.id,
+    });
+    expect(joined).toEqual({
+      ok: true,
+      value: { pairSpaceId: space.value.space.id },
+    });
+    const ch = await startRecoveryByInvite(store, crypto, clock, {
+      installationId: "nueva",
+      inviteToken: "AAAAAAAAA",
+    });
+    expect(ch.ok).toBe(true);
   });
 
   it("consume idempotente si ya es miembro; rechaza segundo espacio", async () => {

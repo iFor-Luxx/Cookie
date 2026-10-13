@@ -262,9 +262,11 @@ export class RealtimeClient {
       if (!installationId) return;
       const { ticket } = await api.realtimeTicket(this.spaceId);
       const cursor = await cursorBackend(this.spaceId).load();
+      // Sin subprotocolo: el servidor no negocia ninguno y RFC 6455 obliga
+      // al cliente a tumbar el socket si ofrece uno que el 101 no confirma.
+      // (El versionado real viaja en el hello JSON, no aquí.)
       const ws = new WebSocket(
         `${base}/v1/pair-spaces/${this.spaceId}/realtime-socket?ticket=${encodeURIComponent(ticket)}`,
-        "pair.v1",
       );
       this.ws = ws;
       ws.onopen = () => {

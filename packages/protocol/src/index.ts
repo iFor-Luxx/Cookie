@@ -107,7 +107,7 @@ export const createInviteRequest = z.object({
 });
 export const createInviteResponse = z.object({
   inviteId: z.string(),
-  // Código de la sala: reutilizable, no caduca (rota al generar otro).
+  // Código de la sala: permanente, no caduca ni se invalida.
   inviteToken: inviteTokenSchema,
   expiresAt: z.string(),
 });
@@ -172,7 +172,7 @@ export const recoveryChallengeResponse = z.object({
 });
 
 // POST /v1/recovery-challenges — por código de invitación (sin ID de espacio).
-// El código lo genera un miembro desde la sala; no caduca (rota al generar otro).
+// El código lo genera un miembro desde la sala; permanente, no caduca.
 export const recoveryChallengeByInviteRequest = z.object({
   installationId: z.string().min(1),
   inviteToken: z.string().trim().min(1).max(128),
